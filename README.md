@@ -30,10 +30,11 @@ routing and positioning work wherever the underlying data exists.
   satellites or get around hardware limits. NavIC and QZSS are regional and many phones do not
   track them.
 - **Map completeness** depends on OpenStreetMap coverage, which varies by country.
-- **Satellite detail.** 30 cm per pixel is commercial imagery (Maxar, Airbus and similar). The app
-  shows it only when you supply a provider key or licensed tile URL, and only where that provider
-  has it. Without one, imagery is Sentinel-2 at about 10 m per pixel. No imagery is ever
-  AI-generated or sharpened to look more detailed than it is.
+- **Satellite detail.** Imagery of 30 to 50 cm per pixel is commercial data (Maxar, Airbus and
+  similar). The app shows it only with a provider key (Esri, Mapbox, MapTiler, or a licensed tile
+  URL), and only where that provider holds detailed pictures: providers enlarge coarse imagery to
+  fill deep zoom levels elsewhere, so the app never states a centimetre figure for them. Without
+  a key, imagery is Sentinel-2 at about 10 m per pixel. No imagery is AI-generated or sharpened.
 - **Street view** shows photos other people have uploaded. Many streets, especially outside
   Europe and North America, have none; the app then says so. It is not Google Street View, whose
   licence does not allow use on a non-Google map. 360° photos are shown as a flat strip.
@@ -63,7 +64,7 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 57 unit tests
+./gradlew testDebugUnitTest                    # 58 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```

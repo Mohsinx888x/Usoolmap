@@ -115,6 +115,19 @@ class Settings(context: Context) {
         get() = prefs.getString("maptiler_key", "") ?: ""
         set(v) = prefs.edit().putString("maptiler_key", v.trim()).apply()
 
+    var esriKey: String
+        get() = prefs.getString("esri_key", "") ?: ""
+        set(v) = prefs.edit().putString("esri_key", v.trim()).apply()
+
+    var mapboxToken: String
+        get() = prefs.getString("mapbox_token", "") ?: ""
+        set(v) = prefs.edit().putString("mapbox_token", v.trim()).apply()
+
+    /** Id of the chosen satellite source, or "auto" for the most detailed one available. */
+    var satelliteChoice: String
+        get() = prefs.getString("satellite_choice", SatelliteCatalog.AUTO) ?: SatelliteCatalog.AUTO
+        set(v) = prefs.edit().putString("satellite_choice", v).apply()
+
     var mapillaryToken: String
         get() = prefs.getString("mapillary_token", "") ?: ""
         set(v) = prefs.edit().putString("mapillary_token", v.trim()).apply()
@@ -144,13 +157,17 @@ class AppContainer(private val app: Application) {
     )
 
     /** Chosen each time it is read: a key saved in Settings wins over one compiled into the build. */
-    val satellite get() = SatelliteCatalog.select(
+    val imageryKeys get() = com.usool.map.imagery.ImageryKeys(
+        esri = settings.esriKey,
+        mapbox = settings.mapboxToken,
+        mapTiler = settings.mapTilerKey.ifBlank { BuildConfig.MAPTILER_API_KEY },
         customUrl = BuildConfig.SATELLITE_TILES_URL,
         customName = BuildConfig.SATELLITE_NAME,
         customMaxZoom = BuildConfig.SATELLITE_MAX_ZOOM,
         customAttribution = BuildConfig.SATELLITE_ATTRIBUTION,
-        mapTilerKey = settings.mapTilerKey.ifBlank { BuildConfig.MAPTILER_API_KEY },
     )
+    val satelliteSources get() = SatelliteCatalog.available(imageryKeys)
+    val satellite get() = SatelliteCatalog.select(imageryKeys, settings.satelliteChoice)
 
     private val themeJson: String by lazy { app.assets.open("map_themes.json").use { it.readBytes().toString(Charsets.UTF_8) } }
     val dayTheme: com.usool.map.map.MapTheme by lazy { com.usool.map.map.MapTheme.parse(themeJson, dark = false) }

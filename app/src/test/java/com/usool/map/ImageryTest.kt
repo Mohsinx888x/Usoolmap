@@ -1,6 +1,7 @@
 package com.usool.map
 
 import com.usool.map.core.GeoPoint
+import com.usool.map.imagery.ImageryKeys
 import com.usool.map.imagery.MapillaryProvider
 import com.usool.map.imagery.PanoramaxProvider
 import com.usool.map.imagery.SatelliteCatalog
@@ -29,28 +30,39 @@ class SatelliteTest {
         assertEquals("12 m", SatelliteCatalog.formatResolution(12.3))
     }
 
-    @Test fun freeImageryIsTheDefaultAndNeverClaimsHighResolution() {
-        val s = SatelliteCatalog.select("", "", 19, "", "")
+    @Test fun freeImageryIsTheDefaultAndStatesItsRealDetail() {
+        val s = SatelliteCatalog.select(ImageryKeys())
         assertEquals(SatelliteCatalog.SENTINEL2, s)
-        assertFalse(s.highResolution)
         val text = SatelliteCatalog.describe(s, 25.3, 17.0)
-        assertTrue(text, text.contains("about 8.6 m per pixel"))
+        assertTrue(text, text.contains("real detail about 10 m per pixel"))
         assertTrue(text.contains("enlarged, not sharper"))
-        assertTrue(text.contains("needs a licensed provider key"))
         assertFalse(SatelliteCatalog.describe(s, 25.3, 12.0).contains("enlarged"))
     }
 
-    @Test fun licensedSourcesTakePriority() {
-        val mapTiler = SatelliteCatalog.select("", "", 19, "", "KEY")
-        assertTrue(mapTiler.highResolution)
-        assertTrue(mapTiler.tileUrl.endsWith("{z}/{x}/{y}.jpg?key=KEY"))
-        val custom = SatelliteCatalog.select("https://tiles.example/{z}/{x}/{y}.jpg", "Aerial 30", 19, "© Example", "KEY")
-        assertEquals("Aerial 30", custom.name)
-        assertTrue(custom.highResolution)
-        val text = SatelliteCatalog.describe(custom, 25.3, 18.0)
-        assertTrue(text, text.contains("about 27 cm per pixel"))
-        assertFalse(text.contains("licensed provider key"))
-        assertFalse(SatelliteCatalog.select("https://t/{z}/{x}/{y}", "", 15, "", "").highResolution)
+    @Test fun commercialSourcesNeverClaimACentimetreFigure() {
+        // Providers enlarge coarse pictures to fill deep zoom levels, so tile depth proves nothing.
+        for (keys in listOf(ImageryKeys(esri = "K"), ImageryKeys(mapbox = "K"), ImageryKeys(mapTiler = "K"))) {
+            val s = SatelliteCatalog.select(keys)
+            assertNull(s.knownResolutionM)
+            val text = SatelliteCatalog.describe(s, 25.3, 20.0)
+            assertFalse(text, text.contains(" cm"))
+            assertFalse(text.contains("per pixel"))
+            assertTrue(text.contains("Sharpness depends"))
+        }
+    }
+
+    @Test fun listsSourcesByDetailAndHonoursTheChoice() {
+        val keys = ImageryKeys(esri = " E ", mapbox = "M", mapTiler = "T")
+        assertEquals(listOf("esri", "mapbox", "maptiler", "sentinel2"), SatelliteCatalog.available(keys).map { it.id })
+        assertEquals("esri", SatelliteCatalog.select(keys).id)
+        assertEquals("maptiler", SatelliteCatalog.select(keys, "maptiler").id)
+        assertEquals("sentinel2", SatelliteCatalog.select(keys, "sentinel2").id)
+        // A choice whose key was removed falls back to the best remaining source.
+        assertEquals("maptiler", SatelliteCatalog.select(ImageryKeys(mapTiler = "T"), "esri").id)
+        assertTrue(SatelliteCatalog.select(keys).tileUrl.endsWith("tile/{z}/{y}/{x}?token=E"))
+        assertTrue(SatelliteCatalog.select(keys, "mapbox").tileUrl.endsWith("{z}/{x}/{y}.jpg90?access_token=M"))
+        assertTrue(SatelliteCatalog.select(keys, "maptiler").tileUrl.endsWith("{z}/{x}/{y}.jpg?key=T"))
+        assertEquals("custom", SatelliteCatalog.select(ImageryKeys(customUrl = "https://t/{z}/{x}/{y}", esri = "E")).id)
     }
 }
 

@@ -176,12 +176,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Saves the provider keys typed in Settings and reloads the map's imagery with them. */
-    fun saveImageryKeys(mapTilerKey: String, mapillaryToken: String) {
+    fun saveImageryKeys(esriKey: String, mapboxToken: String, mapTilerKey: String, mapillaryToken: String) {
+        container.settings.esriKey = esriKey
+        container.settings.mapboxToken = mapboxToken
         container.settings.mapTilerKey = mapTilerKey
         container.settings.mapillaryToken = mapillaryToken
-        _ui.update { it.copy(imageryVersion = it.imageryVersion + 1, satellite = it.satellite || mapTilerKey.isNotBlank()) }
-        val s = container.satellite
-        showMessage("Saved. Satellite imagery: ${s.name}. Street photos: ${container.streetView.activeProviders.joinToString(" and ") { it.name }}.")
+        _ui.update { it.copy(imageryVersion = it.imageryVersion + 1) }
+        showMessage("Saved. Satellite imagery: ${container.satellite.name}. Street photos: ${container.streetView.activeProviders.joinToString(" and ") { it.name }}.")
+    }
+
+    fun setSatelliteSource(id: String) {
+        container.settings.satelliteChoice = id
+        _ui.update { it.copy(imageryVersion = it.imageryVersion + 1) }
     }
 
     fun setSatellite(enabled: Boolean) = _ui.update { it.copy(satellite = enabled) }

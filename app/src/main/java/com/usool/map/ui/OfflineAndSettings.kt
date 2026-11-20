@@ -208,18 +208,29 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 
             Section("Satellite and street imagery") {
                 val source = vm.container.satellite.also { ui.imageryVersion }
-                Text("Satellite imagery now: ${source.name}, finest detail about ${SatelliteCatalog.formatResolution(source.bestResolutionM(25.0))} per pixel.", style = MaterialTheme.typography.bodyMedium)
+                val sources = vm.container.satelliteSources
+                var sourceOpen by remember { mutableStateOf(false) }
+                OutlinedButton(onClick = { sourceOpen = true }) { Text("Satellite source: ${source.name}") }
+                DropdownMenu(expanded = sourceOpen, onDismissRequest = { sourceOpen = false }) {
+                    DropdownMenuItem(text = { Text("Automatic (most detailed available)") }, onClick = { vm.setSatelliteSource(SatelliteCatalog.AUTO); sourceOpen = false })
+                    sources.forEach { s -> DropdownMenuItem(text = { Text(s.name) }, onClick = { vm.setSatelliteSource(s.id); sourceOpen = false }) }
+                }
                 Text(
-                    "For sharp imagery (roofs, cars, lane markings where the provider has it), create a free account at maptiler.com, copy your API key and paste it here. " +
-                        "For street photos worldwide, paste a free Mapillary client token from mapillary.com/developer. Keys stay on this phone.",
+                    "The free source shows about 10 m per pixel. Imagery sharp enough for roofs, cars and lane markings (around 30 to 50 cm) is commercial: " +
+                        "paste a key from a provider below. Detail differs by provider and place, so if one is blurry where you are, try another. " +
+                        "Esri World Imagery usually has the sharpest pictures of Gulf cities.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                var esri by remember { mutableStateOf(vm.container.settings.esriKey) }
+                var mapbox by remember { mutableStateOf(vm.container.settings.mapboxToken) }
                 var mapTiler by remember { mutableStateOf(vm.container.settings.mapTilerKey) }
                 var mapillary by remember { mutableStateOf(vm.container.settings.mapillaryToken) }
-                OutlinedTextField(value = mapTiler, onValueChange = { mapTiler = it }, label = { Text("MapTiler API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(value = mapillary, onValueChange = { mapillary = it }, label = { Text("Mapillary client token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Button(onClick = { vm.saveImageryKeys(mapTiler, mapillary) }) { Text("Save keys") }
-                Text("Free plans have monthly limits. If a key is wrong or its limit is used up, the satellite layer stays blank until the key is fixed or removed.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(value = esri, onValueChange = { esri = it }, label = { Text("Esri ArcGIS API key (location.arcgis.com)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = mapbox, onValueChange = { mapbox = it }, label = { Text("Mapbox access token (mapbox.com)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = mapTiler, onValueChange = { mapTiler = it }, label = { Text("MapTiler API key (maptiler.com)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = mapillary, onValueChange = { mapillary = it }, label = { Text("Mapillary token, for street photos") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveImageryKeys(esri, mapbox, mapTiler, mapillary) }) { Text("Save keys") }
+                Text("Keys stay on this phone. Free plans have monthly limits. If a key is wrong or its limit is used up, the satellite layer stays blank until the key is fixed or another source is chosen.", style = MaterialTheme.typography.bodySmall)
             }
 
             Section("Region: $country") {
