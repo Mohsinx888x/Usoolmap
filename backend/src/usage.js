@@ -29,8 +29,9 @@ export function createUsage({ store, config, now = () => new Date() }) {
       store.addUsage(utcDay(now()), { grokCalls, ttsCharacters, bytesStored }),
 
     async isOverBudget() {
-      const [today] = await store.getUsage(utcDay(now()));
-      return dayRow(utcDay(now()), today).estimatedCostUsd >= config.dailyBudgetUsd;
+      const day = utcDay(now());
+      const today = (await store.getUsage(day)).find((row) => row.day === day);
+      return dayRow(day, today).estimatedCostUsd >= config.dailyBudgetUsd;
     },
 
     /** One row per day for the last `days` days, today first, zero-filled. */

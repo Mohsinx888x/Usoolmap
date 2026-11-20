@@ -31,18 +31,18 @@ const store = createPostgresStore(config.databaseUrl);
 const blobs = createAzureBlobStore(config);
 const queue = createAzureJobQueue(config);
 const usage = createUsage({ store, config });
+const textGenerator = createGrokTextGenerator({ apiKey: config.xaiApiKey, model: config.grokModel });
 await Promise.all([store.init(), blobs.init(), queue.init()]);
 
 const stoppers = [];
 if (config.role !== 'worker') {
-  const app = buildApp({ config, store, queue, blobs, usage, logger });
+  const app = buildApp({ config, store, queue, blobs, usage, textGenerator, logger });
   await app.listen({ port: config.port, host: '0.0.0.0' });
   stoppers.push(() => app.close());
 }
 if (config.role !== 'api') {
   const generator = createGenerator({
-    store, blobs, usage, config,
-    textGenerator: createGrokTextGenerator({ apiKey: config.xaiApiKey, model: config.grokModel }),
+    store, blobs, usage, config, textGenerator,
     speech: createAzureSpeechSynthesizer({ key: config.speechKey, region: config.speechRegion }),
   });
   const worker = createWorker({ queue, store, generator, config, logger });

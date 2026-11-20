@@ -28,6 +28,22 @@ export function createPostgresStore(connectionString) {
   const pool = new pg.Pool({ connectionString, max: 10 });
   const query = (text, values) => pool.query(text, values);
 
+  /** Runs `work(client)` in one transaction. */
+  async function transaction(work) {
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      const result = await work(client);
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   return {
     init: () => migrate(pool),
     close: () => pool.end(),
@@ -44,6 +60,18 @@ export function createPostgresStore(connectionString) {
     },
     async deviceExists(id) {
       return (await query('select 1 from devices where id = $1', [id])).rowCount > 0;
+    },
+
+    deleteDevice(id) {
+      // All or nothing. Plays would also go through the foreign key cascade; deleting them
+      // explicitly keeps the erasure readable in one place.
+      return transaction(async (client) => {
+        await client.query('delete from plays where device_id = $1', [id]);
+        await client.query('delete from device_quota where device_id = $1', [id]);
+        await client.query('delete from pronunciation_reports where device_id = $1', [id]);
+        await client.query('update jobs set requested_by = null where requested_by = $1', [id]);
+        await client.query('delete from devices where id = $1', [id]);
+      });
     },
 
     async insertClip(c) {
@@ -130,32 +158,15 @@ export function createPostgresStore(connectionString) {
       return rowCount > 0;
     },
 
-    async consumeQuota(deviceId, day, wanted, limit) {
+    consumeQuota(deviceId, day, wanted, limit) {
       // Row lock, so two concurrent requests from one device cannot both take the last units.
-      const client = await pool.connect();
-      try {
-        await client.query('begin');
-        await client.query(
-          'insert into device_quota (device_id, day) values ($1, $2) on conflict do nothing',
-          [deviceId, day],
-        );
-        const { rows } = await client.query(
-          'select used from device_quota where device_id = $1 and day = $2 for update',
-          [deviceId, day],
-        );
+      return transaction(async (client) => {
+        await client.query('insert into device_quota (device_id, day) values ($1, $2) on conflict do nothing', [deviceId, day]);
+        const { rows } = await client.query('select used from device_quota where device_id = $1 and day = $2 for update', [deviceId, day]);
         const granted = Math.max(0, Math.min(wanted, limit - rows[0].used));
-        await client.query(
-          'update device_quota set used = used + $3 where device_id = $1 and day = $2',
-          [deviceId, day, granted],
-        );
-        await client.query('commit');
+        await client.query('update device_quota set used = used + $3 where device_id = $1 and day = $2', [deviceId, day, granted]);
         return granted;
-      } catch (error) {
-        await client.query('rollback');
-        throw error;
-      } finally {
-        client.release();
-      }
+      });
     },
     async getQuotaUsed(deviceId, day) {
       const { rows } = await query('select used from device_quota where device_id = $1 and day = $2', [deviceId, day]);

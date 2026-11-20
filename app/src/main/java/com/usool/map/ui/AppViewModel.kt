@@ -43,6 +43,10 @@ data class MapUiState(
     val mode: TravelMode = TravelMode.DRIVING,
     val modeAvailability: Map<TravelMode, Availability> = emptyMap(),
     val route: Route? = null,
+    /** All options for the current trip, best first; [route] is the one chosen. */
+    val routeOptions: List<Route> = emptyList(),
+    /** Traffic incidents shown on request, outside navigation. */
+    val incidents: List<com.usool.map.traffic.RoadIncident> = emptyList(),
     val routing: Boolean = false,
     val is3D: Boolean = false,
     val builtGeoJson: String? = null,
@@ -54,6 +58,8 @@ data class MapUiState(
     val voiceLanguage: String = "en-US",
     val cameraAlerts: Boolean = true,
     val zoom: Double = 10.0,
+    /** The CesiumJS 3D globe is open on top of the map. */
+    val globeOpen: Boolean = false,
     /** Bumped when imagery keys change, so the map rebuilds its imagery layers. */
     val imageryVersion: Int = 0,
     val mapTheme: com.usool.map.map.MapThemeMode = com.usool.map.map.MapThemeMode.AUTO,
@@ -134,8 +140,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return areaCountry ?: container.country.value
     }
 
+    /**
+     * The search box doubles as the assistant: a command ("take me home", "وين أقرب صيدلية") is
+     * carried out, anything else is searched for.
+     */
     fun submitSearch(text: String = _ui.value.query) {
         if (text.isBlank()) return
+        if (com.usool.map.core.CoordinateParser.parse(text) == null) {
+            com.usool.map.assistant.LocalCommands.match(text)?.let { perform(it); return }
+        }
+        search(text)
+    }
+
+    private fun search(text: String, thenRoute: Boolean = false) {
         val bounds = _ui.value.visibleBounds
         val concept = com.usool.map.search.PoiConcepts.match(text)
         if (concept != null && com.usool.map.core.CoordinateParser.parse(text) == null && (bounds == null || bounds.areaKm2 > com.usool.map.search.SearchRepository.MAX_AREA_KM2)) {
@@ -149,7 +166,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val areaLanguage = com.usool.map.search.AreaLanguage.forCountry(countryOfMap(centre))
                 val found = container.search.search(text, currentPoint() ?: centre, _ui.value.searchLanguage, bounds, areaLanguage)
                 val empty = if (concept != null) "No ${concept.label("en").lowercase()} is mapped in this area. OpenStreetMap coverage here may be incomplete." else "No places found for \"$text\"."
+                if (found.places.isEmpty() && concept == null && container.assistantAiAvailable && askAi(text)) return@launch
                 _ui.update { it.copy(searching = false, results = found.places, searchHeading = found.heading, areaLanguage = areaLanguage, message = if (found.places.isEmpty()) empty else null) }
+                if (thenRoute) found.places.firstOrNull()?.let { selectPlace(it); calculateRoute() }
             } catch (e: Exception) {
                 _ui.update { it.copy(searching = false, message = e.message ?: "Search failed.") }
             }
@@ -203,6 +222,84 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         _ui.update { it.copy(grokVoice = id) }
     }
 
+    /** Lets the AI assistant interpret a request the app did not understand. True when it led to an action. */
+    private suspend fun askAi(text: String): Boolean {
+        val action = container.askAssistantAi(text)?.let { com.usool.map.assistant.AssistantActions.fromJson(it) } ?: return false
+        _ui.update { it.copy(searching = false) }
+        perform(action)
+        return true
+    }
+
+    /** Carries out one validated assistant action and says what was done. */
+    fun perform(action: com.usool.map.assistant.AssistantAction) {
+        fun done(text: String) { showMessage(text); container.voice.speak(text, com.usool.map.voice.humour.AudioPriority.INFO) }
+        when (action) {
+            com.usool.map.assistant.AssistantAction.NavigateHome -> {
+                val home = container.settings.home
+                if (home == null) done("Home is not set yet. Choose a place and tap Set as home.")
+                else { selectPlace(Place("Home", "Saved home", home)); calculateRoute() }
+            }
+            is com.usool.map.assistant.AssistantAction.NavigateTo -> search(action.query, thenRoute = true)
+            is com.usool.map.assistant.AssistantAction.FindNearby -> {
+                val concept = com.usool.map.search.PoiConcepts.all.first { it.id == action.conceptId }
+                search(concept.triggers.firstOrNull { t -> t.all { it.code < 128 } } ?: concept.triggers.first())
+            }
+            is com.usool.map.assistant.AssistantAction.Set3D -> { set3D(action.enabled); done(if (action.enabled) "3D view on." else "2D view on.") }
+            is com.usool.map.assistant.AssistantAction.SetSatellite -> { setSatellite(action.enabled); done(if (action.enabled) "Satellite view on." else "Satellite view off.") }
+            com.usool.map.assistant.AssistantAction.OpenGlobe -> setGlobeOpen(true)
+            com.usool.map.assistant.AssistantAction.ShowTraffic -> showTraffic()
+            is com.usool.map.assistant.AssistantAction.AvoidTolls -> {
+                container.settings.avoidTolls = action.enabled
+                done(if (action.enabled) "Toll roads will be avoided where a toll-free route exists." else "Toll roads are allowed again.")
+                if (_ui.value.destination != null && !navigation.value.active) calculateRoute()
+            }
+            is com.usool.map.assistant.AssistantAction.SetVoiceMode -> { setVoiceMode(action.mode); done("Voice mode: ${action.mode.label}.") }
+            is com.usool.map.assistant.AssistantAction.SetVoiceLanguage -> { val l = com.usool.map.voice.VoiceLanguages.forTag(action.tag); setVoiceLanguage(l); done("Voice language: ${l.label}.") }
+            com.usool.map.assistant.AssistantAction.DownloadOfflineMap -> {
+                downloadVisibleRegion("Offline region", getApplication<Application>().resources.displayMetrics.density)
+                if (online.value && _ui.value.visibleBounds != null) done("Downloading the area on the map for offline use.")
+            }
+            com.usool.map.assistant.AssistantAction.GenerateJokes -> container.humour.generateNew()
+            com.usool.map.assistant.AssistantAction.StopNavigation -> { stopNavigation(); done("Navigation stopped.") }
+        }
+    }
+
+    /** Loads traffic incidents for the area on the map from the provider licensed for this country, if any. */
+    private fun showTraffic() {
+        val cc = container.region().countryCode
+        val availability = container.roadData.availability(com.usool.map.traffic.RoadService.INCIDENTS, cc)
+        val bounds = _ui.value.visibleBounds
+        if (availability is com.usool.map.core.Availability.Unavailable) { showMessage("Live traffic is not available: ${availability.reason}"); return }
+        if (bounds == null) return
+        viewModelScope.launch {
+            val provider = container.roadData.providerFor(com.usool.map.traffic.RoadService.INCIDENTS, cc) ?: return@launch
+            runCatching { provider.incidents(bounds, container.voice.language.tag) }
+                .onSuccess { list -> _ui.update { it.copy(incidents = list, message = if (list.isEmpty()) "No traffic incidents are reported in this area right now." else "${list.size} traffic incidents shown on the map (${provider.name}).") } }
+                .onFailure { showMessage(it.message ?: "Traffic could not be loaded.") }
+        }
+    }
+
+    fun setHome(point: GeoPoint) {
+        container.settings.home = point
+        showMessage("Saved as home. Say or type \"take me home\" any time.")
+    }
+
+    /** Deletes saved jokes and their history, the home position and this installation's identity, here and on the voice service. */
+    fun deleteMyData() {
+        viewModelScope.launch {
+            val cloud = if (container.cloudVoice.configured && online.value) runCatching { container.cloudVoice.deleteMyData() }.isSuccess else null
+            container.humour.clearCache()
+            container.settings.clearPersonalData()
+            showMessage(
+                when (cloud) {
+                    true -> "Your joke history and home position were deleted from this phone and from the voice service."
+                    false -> "Deleted from this phone. The voice service could not be reached, so its copy of your joke history was not deleted; try again when online."
+                    null -> "Your joke history and home position were deleted from this phone."
+                },
+            )
+        }
+    }
+
     fun setSearchLanguage(tag: String) {
         container.settings.searchLanguage = tag
         _ui.update { it.copy(searchLanguage = tag) }
@@ -232,13 +329,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectPlace(place: Place) {
         container.setDetectedCountry(place.countryCode)
-        _ui.update { it.copy(destination = place, results = emptyList(), searchHeading = null, query = place.localName ?: place.name, route = null) }
+        _ui.update { it.copy(destination = place, results = emptyList(), searchHeading = null, query = place.localName ?: place.name, route = null, routeOptions = emptyList()) }
     }
 
     /** A long press on the map: use the point as the destination and name it when online. */
     fun selectPoint(point: GeoPoint) {
         val label = String.format(java.util.Locale.US, "%.5f, %.5f", point.lat, point.lon)
-        _ui.update { it.copy(destination = Place(label, "Dropped pin", point), results = emptyList(), route = null) }
+        _ui.update { it.copy(destination = Place(label, "Dropped pin", point), results = emptyList(), route = null, routeOptions = emptyList()) }
         viewModelScope.launch {
             val named = container.search.reverse(point, _ui.value.searchLanguage) ?: return@launch
             container.setDetectedCountry(named.countryCode)
@@ -247,11 +344,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearDestination() {
-        _ui.update { it.copy(destination = null, route = null, results = emptyList(), query = "") }
+        _ui.update { it.copy(destination = null, route = null, routeOptions = emptyList(), results = emptyList(), query = "") }
     }
 
     fun setMode(mode: TravelMode) {
-        _ui.update { it.copy(mode = mode, route = null) }
+        _ui.update { it.copy(mode = mode, route = null, routeOptions = emptyList()) }
         if (_ui.value.destination != null) calculateRoute()
     }
 
@@ -262,16 +359,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { it.copy(message = "Waiting for a satellite position before a route can be calculated.") }
             return
         }
-        _ui.update { it.copy(routing = true, route = null) }
+        _ui.update { it.copy(routing = true, route = null, routeOptions = emptyList()) }
         viewModelScope.launch {
             try {
-                val route = container.routing.route(from, dest.point, _ui.value.mode, container.voice.language.tag)
-                _ui.update { it.copy(routing = false, route = route) }
+                val options = container.routing.routes(from, dest.point, _ui.value.mode, container.voice.language.tag)
+                _ui.update { it.copy(routing = false, route = options.first(), routeOptions = options) }
             } catch (e: Exception) {
                 _ui.update { it.copy(routing = false, message = e.message ?: "No route found.") }
             }
         }
     }
+
+    fun chooseRoute(route: Route) = _ui.update { if (route in it.routeOptions) it.copy(route = route) else it }
 
     fun startNavigation() {
         val route = _ui.value.route ?: return
@@ -281,7 +380,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun stopNavigation() {
         container.navigator.stop()
-        _ui.update { it.copy(route = null) }
+        _ui.update { it.copy(route = null, routeOptions = emptyList()) }
     }
 
     fun set3D(enabled: Boolean) = _ui.update { it.copy(is3D = enabled) }
@@ -311,6 +410,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setSatelliteSource(id: String) {
         container.settings.satelliteChoice = id
         _ui.update { it.copy(imageryVersion = it.imageryVersion + 1) }
+    }
+
+    fun setGlobeOpen(open: Boolean) = _ui.update { it.copy(globeOpen = open) }
+
+    fun saveCesiumToken(token: String) {
+        container.settings.cesiumIonToken = token
+        showMessage(if (token.isBlank()) "Cesium ion token removed. The globe shows imagery only." else "Cesium ion token saved. The globe will load terrain and 3D buildings.")
     }
 
     fun setSatellite(enabled: Boolean) = _ui.update { it.copy(satellite = enabled) }

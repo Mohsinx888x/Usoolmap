@@ -236,6 +236,19 @@ class RoutingRepository(private val providers: List<RoutingProvider>) {
     /** Only the modes that can actually be routed now are offered in the UI. */
     fun routableModes(from: GeoPoint?): List<TravelMode> = TravelMode.entries.filter { availability(it, from).isAvailable }
 
+    /** Route options for the user to choose from: the first provider that answers decides. */
+    suspend fun routes(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): List<Route> {
+        var lastError: Exception? = null
+        for (p in providers.filter { mode in it.modes && it.availability(mode, from).isAvailable }) {
+            try {
+                return p.routes(from, to, mode, language)
+            } catch (e: RoutingException) {
+                lastError = e
+            }
+        }
+        throw lastError ?: RoutingException((availability(mode, from) as? Availability.Unavailable)?.reason ?: "No route found.")
+    }
+
     suspend fun route(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): Route {
         var lastError: Exception? = null
         for (p in providers.filter { mode in it.modes && it.availability(mode, from).isAvailable }) {

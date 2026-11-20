@@ -129,6 +129,8 @@ class HumourEngine(
     /** Fetches clips for [events] in the background. Failures are silent: navigation is unaffected. */
     private fun stock(events: List<NavEvent>, want: Int) {
         if (prefs.offlineOnly || !online()) return
+        // The backend needs a personality it knows; until the voice list has been loaded there is none.
+        if (source == "cloud" && prefs.personality.isBlank()) { refreshVoices(); return }
         val key = events.joinToString(",") { it.wire } + "|$language|$personality|$level"
         synchronized(fetching) { if (!fetching.add(key)) return }
         scope.launch {

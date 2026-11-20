@@ -60,4 +60,7 @@ interface RoutingProvider {
 
     /** [language] is a BCP-47 tag for the instruction text; providers fall back to English. */
     suspend fun route(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): Route
+
+    /** The best route first, followed by any genuinely different alternatives the engine found. */
+    suspend fun routes(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): List<Route> = listOf(route(from, to, mode, language))
 }

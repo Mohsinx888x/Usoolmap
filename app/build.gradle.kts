@@ -25,7 +25,6 @@ android {
         versionName = "1.0.0"
         // Phone and tablet processors only; emulator-only x86 libraries would double the download.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
-        buildConfigField("String", "GROK_API_KEY", "\"${secret("GROK_API_KEY")}\"")
         buildConfigField("String", "GROK_MODEL", "\"${secret("GROK_MODEL", "latest")}\"")
         buildConfigField("String", "TOMTOM_API_KEY", "\"${secret("TOMTOM_API_KEY")}\"")
         buildConfigField("String", "TERRAIN_TILES_URL", "\"${secret("TERRAIN_TILES_URL")}\"")
@@ -39,8 +38,23 @@ android {
         buildConfigField("int", "SATELLITE_MAX_ZOOM", (secret("SATELLITE_MAX_ZOOM", "19").toIntOrNull() ?: 19).toString())
     }
 
+    // Release signing is configured only when a keystore is supplied (locally or by CI secrets);
+    // without one the release bundle is built unsigned.
+    val keystorePath = secret("RELEASE_KEYSTORE_FILE")
+    signingConfigs {
+        if (keystorePath.isNotBlank()) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = secret("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = secret("RELEASE_KEY_ALIAS")
+                keyPassword = secret("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (keystorePath.isNotBlank()) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -73,6 +87,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.13.1")
     implementation("io.coil-kt:coil:2.7.0")
     implementation("com.google.mlkit:translate:17.0.3")
+    implementation("androidx.webkit:webkit:1.12.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

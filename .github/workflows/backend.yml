@@ -1,0 +1,40 @@
+name: Voice backend
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend.yml']
+  pull_request:
+    paths: ['backend/**']
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: usoolmap_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      # Runs the unit, pipeline and API tests, the storage tests against the Azurite emulator,
+      # and the database tests against the PostgreSQL service above.
+      - run: npm test
+        env:
+          TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/usoolmap_test
+      - name: Container image builds
+        run: docker build -t usoolmap-voice-backend .

@@ -26,6 +26,15 @@ export function createMemoryStore() {
       return devices.get(installIdHash);
     },
     deviceExists: async (id) => [...devices.values()].includes(id),
+    async deleteDevice(id) {
+      for (const [hash, deviceId] of devices) if (deviceId === id) devices.delete(hash);
+      for (const key of [...plays.keys(), ...quota.keys()].filter((k) => k.startsWith(`${id}|`))) {
+        plays.delete(key);
+        quota.delete(key);
+      }
+      for (const job of jobs.values()) if (job.requestedBy === id) job.requestedBy = null;
+      for (let i = reports.length - 1; i >= 0; i--) if (reports[i].deviceId === id) reports.splice(i, 1);
+    },
 
     async insertClip(clip) {
       const duplicate = clips.some(

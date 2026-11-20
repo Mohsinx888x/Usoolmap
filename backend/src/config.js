@@ -57,13 +57,9 @@ export function loadConfig(env = process.env) {
 export function missingSettings(config) {
   const required = { TOKEN_SECRET: config.tokenSecret, DATABASE_URL: config.databaseUrl };
   if (!config.storageConnectionString) required.AZURE_STORAGE_ACCOUNT = config.storageAccount;
+  // The API needs the text model too (assistant commands); only the worker synthesises speech.
+  required.XAI_API_KEY = config.xaiApiKey;
   if (config.role !== 'worker') Object.assign(required, { APP_KEY: config.appKey, ADMIN_KEY: config.adminKey });
-  if (config.role !== 'api') {
-    Object.assign(required, {
-      XAI_API_KEY: config.xaiApiKey,
-      AZURE_SPEECH_KEY: config.speechKey,
-      AZURE_SPEECH_REGION: config.speechRegion,
-    });
-  }
+  if (config.role !== 'api') Object.assign(required, { AZURE_SPEECH_KEY: config.speechKey, AZURE_SPEECH_REGION: config.speechRegion });
   return Object.keys(required).filter((name) => !required[name]);
 }

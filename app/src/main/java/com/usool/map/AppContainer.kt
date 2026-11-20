@@ -176,6 +176,25 @@ class Settings(context: Context) : com.usool.map.voice.humour.CloudCredentials, 
         get() = prefs.getString("grok_voice", null) ?: com.usool.map.voice.GrokVoiceClient.DEFAULT_VOICE
         set(v) = prefs.edit().putString("grok_voice", v).apply()
 
+    /** Cesium ion access token for real terrain and 3D buildings on the globe; optional. */
+    var cesiumIonToken: String
+        get() = prefs.getString("cesium_ion_token", "") ?: ""
+        set(v) = prefs.edit().putString("cesium_ion_token", v.trim()).apply()
+
+    var avoidTolls: Boolean
+        get() = prefs.getBoolean("avoid_tolls", false)
+        set(v) = prefs.edit().putBoolean("avoid_tolls", v).apply()
+
+    /** Saved home position as "lat,lon", or null. */
+    var home: com.usool.map.core.GeoPoint?
+        get() = prefs.getString("home", null)?.split(",")?.mapNotNull { it.toDoubleOrNull() }?.takeIf { it.size == 2 }?.let { com.usool.map.core.GeoPoint(it[0], it[1]) }
+        set(v) = prefs.edit().putString("home", v?.let { "${it.lat},${it.lon}" }).apply()
+
+    /** Forgets everything that identifies this installation or records where it has been. */
+    fun clearPersonalData() {
+        prefs.edit().remove("home").remove("install_id").remove("device_token").remove("jokes_paused_until").remove("device_generations").remove("device_generation_day").apply()
+    }
+
     var esriKey: String
         get() = prefs.getString("esri_key", "") ?: ""
         set(v) = prefs.edit().putString("esri_key", v.trim()).apply()
@@ -240,7 +259,7 @@ class AppContainer(private val app: Application) {
 
     val routing = RoutingRepository(
         listOf(
-            ValhallaRoutingProvider(http, isOnline),
+            ValhallaRoutingProvider(http, isOnline, avoidTolls = { settings.avoidTolls }),
             TransitRoutingProvider(http, isOnline),
             OfflineRoutingProvider { offlineRegions.graphs() },
         ),
@@ -260,14 +279,26 @@ class AppContainer(private val app: Application) {
         it.language = VoiceLanguages.forTag(settings.voiceLanguage)
     }
 
-    private val xaiKey: () -> String = { settings.grokKey.ifBlank { BuildConfig.GROK_API_KEY } }
+    // The xAI key is never compiled into the app: it is either typed into Settings and kept on
+    // this phone, or lives only on the backend.
+    private val xaiKey: () -> String = { settings.grokKey }
+    private val grokText = GrokJokeClient(http, xaiKey, BuildConfig.GROK_MODEL)
+    val cloudVoice = com.usool.map.voice.humour.CloudVoiceClient(http, settings)
+
+    /** Asks the AI assistant (backend first, else the phone's own key) for one action as JSON; null when neither is set up. */
+    suspend fun askAssistantAi(text: String): String? = when {
+        cloudVoice.configured -> runCatching { cloudVoice.assistant(text, settings.searchLanguage) }.getOrNull()
+        grokText.configured -> grokText.ask(com.usool.map.assistant.AssistantActions.systemPrompt(), text.take(300))
+        else -> null
+    }
+    val assistantAiAvailable: Boolean get() = cloudVoice.configured || grokText.configured
 
     /** Humorous voice: Azure backend when its address is set, otherwise generated on the phone with an xAI key. */
     val humour = com.usool.map.voice.humour.HumourEngine(
         scope, voice,
         com.usool.map.voice.humour.ClipLibrary(File(app.filesDir, "humour-clips"), nonRepeatDays = settings.nonRepeatDays),
-        com.usool.map.voice.humour.CloudVoiceClient(http, settings),
-        GrokJokeClient(http, xaiKey, BuildConfig.GROK_MODEL),
+        cloudVoice,
+        grokText,
         com.usool.map.voice.GrokVoiceClient(http, xaiKey),
         settings, isOnline,
     )

@@ -17,7 +17,6 @@ enum class RoadService(val label: String) {
     HAZARDS("Road hazards"),
     SPEED_LIMITS("Speed limits"),
     SPEED_CAMERAS("Speed cameras"),
-    ALTERNATIVE_ROUTES("Alternative routes"),
 }
 
 enum class IncidentKind { ACCIDENT, CONGESTION, CLOSURE, CONSTRUCTION, HAZARD, OTHER }

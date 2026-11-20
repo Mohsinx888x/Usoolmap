@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="../cesium/Widgets/widgets.css">
+<style>
+  html, body, #globe { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #000; }
+  .cesium-viewer-bottom { font-size: 10px; }
+  .no-ion .cesium-credit-logoContainer { display: none !important; }
+</style>
+</head>
+<body>
+<div id="globe"></div>
+<script>window.CESIUM_BASE_URL = '../cesium/';</script>
+<script src="../cesium/Cesium.js"></script>
+<script>
+/*
+ * UsoolMap 3D globe, drawn with CesiumJS. It is a separate exploration view: navigation stays
+ * on the native map. The app calls the functions on `window.usool`; this page reports back
+ * through `window.UsoolHost` (present inside the app, absent in a desktop browser).
+ */
+(function () {
+  let viewer = null, routeEntity = null, positionEntity = null, orbitStop = null;
+  const host = (name, value) => { try { if (window.UsoolHost) window.UsoolHost.report(name, String(value)); } catch (e) {} };
+
+  async function init(config) {
+    const hasIon = !!config.ionToken;
+    if (hasIon) Cesium.Ion.defaultAccessToken = config.ionToken;
+    const imagery = new Cesium.UrlTemplateImageryProvider({
+      url: config.imageryUrl, maximumLevel: config.imageryMaxZoom, credit: config.imageryCredit || ''
+    });
+    viewer = new Cesium.Viewer('globe', {
+      baseLayer: new Cesium.ImageryLayer(imagery),
+      // Controls that depend on Cesium ion or other online services are left out.
+      baseLayerPicker: false, geocoder: false, homeButton: false, sceneModePicker: false, navigationHelpButton: false,
+      animation: false, timeline: false, fullscreenButton: false, infoBox: false, selectionIndicator: false,
+      // Draw only when something changes: an idle globe then costs almost no battery.
+      requestRenderMode: true, maximumRenderTimeChange: Infinity,
+    });
+    viewer.scene.globe.enableLighting = false;
+    // The Cesium ion logo belongs on screen only when ion data is actually being used.
+    if (!hasIon) document.body.classList.add('no-ion');
+    // Phones have small GPUs: cap the resolution and the tile cache.
+    viewer.resolutionScale = Math.min(window.devicePixelRatio || 1, 1.5);
+    viewer.scene.globe.tileCacheSize = 120;
+    viewer.scene.globe.maximumScreenSpaceError = 2.5;
+
+    let terrain = 'none', buildings = 'none';
+    if (hasIon) {
+      // Real elevation and OpenStreetMap buildings are streamed from Cesium ion with the user's own token.
+      try { viewer.scene.setTerrain(Cesium.Terrain.fromWorldTerrain()); terrain = 'Cesium World Terrain'; } catch (e) { host('warning', 'Terrain could not be loaded: ' + e.message); }
+      try { viewer.scene.primitives.add(await Cesium.createOsmBuildingsAsync()); buildings = 'Cesium OSM Buildings'; } catch (e) { host('warning', '3D buildings could not be loaded: ' + e.message); }
+    }
+    if (config.tilesetUrl) {
+      try { viewer.scene.primitives.add(await Cesium.Cesium3DTileset.fromUrl(config.tilesetUrl)); buildings = '3D Tiles'; } catch (e) { host('warning', 'The 3D Tiles set could not be loaded: ' + e.message); }
+    }
+    flyTo(config.lat, config.lon, config.height || 6000, 0);
+
+    // Frame rate, so the cost of this mode on the phone in hand can be seen rather than guessed.
+    let frames = 0, last = performance.now();
+    viewer.scene.postRender.addEventListener(() => {
+      frames++;
+      const now = performance.now();
+      if (now - last >= 2000) { host('fps', Math.round(frames * 1000 / (now - last))); frames = 0; last = now; }
+    });
+    host('ready', JSON.stringify({ terrain, buildings, imagery: config.imageryName || '' }));
+  }
+
+  function flyTo(lat, lon, height, seconds) {
+    if (!viewer) return;
+    stopOrbit();
+    // Close to the ground the camera stands back and looks forward at an angle; from space it looks straight down.
+    const oblique = height < 150000;
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lon, oblique ? lat - (height / 111000) * 0.9 : lat, height),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(oblique ? -45 : -90), roll: 0 },
+      duration: seconds === undefined ? 2 : seconds,
+    });
+  }
+
+  /** coords: [[lon, lat], ...]. Pass an empty list to remove the route. */
+  function setRoute(coords) {
+    if (!viewer) return;
+    if (routeEntity) { viewer.entities.remove(routeEntity); routeEntity = null; }
+    if (!coords || coords.length < 2) { viewer.scene.requestRender(); return; }
+    routeEntity = viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray(coords.flat()), width: 6, clampToGround: true,
+        material: new Cesium.PolylineOutlineMaterialProperty({ color: Cesium.Color.fromCssColorString('#FEC502'), outlineColor: Cesium.Color.BLACK, outlineWidth: 2 }),
+      },
+    });
+    viewer.scene.requestRender();
+  }
+
+  function setPosition(lat, lon) {
+    if (!viewer) return;
+    const p = Cesium.Cartesian3.fromDegrees(lon, lat);
+    if (!positionEntity) {
+      positionEntity = viewer.entities.add({
+        position: p,
+        point: { pixelSize: 14, color: Cesium.Color.fromCssColorString('#FEC502'), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      });
+    } else positionEntity.position = p;
+    viewer.scene.requestRender();
+  }
+
+  function stopOrbit() { if (orbitStop) { orbitStop(); orbitStop = null; host('orbit', 'off'); } }
+
+  /** Circles slowly around the point in the middle of the view; call again to stop. */
+  function orbit() {
+    if (!viewer) return;
+    if (orbitStop) { stopOrbit(); return; }
+    const centre = viewer.camera.pickEllipsoid(new Cesium.Cartesian2(viewer.canvas.clientWidth / 2, viewer.canvas.clientHeight / 2));
+    if (!centre) return;
+    const range = Cesium.Cartesian3.distance(viewer.camera.position, centre);
+    let heading = viewer.camera.heading;
+    const pitch = Math.min(viewer.camera.pitch, Cesium.Math.toRadians(-20));
+    const tick = () => {
+      heading += Cesium.Math.toRadians(0.25);
+      viewer.camera.lookAt(centre, new Cesium.HeadingPitchRange(heading, pitch, range));
+      viewer.scene.requestRender();
+    };
+    viewer.clock.onTick.addEventListener(tick);
+    orbitStop = () => { viewer.clock.onTick.removeEventListener(tick); viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY); };
+    host('orbit', 'on');
+  }
+
+  window.usool = { init: (c) => init(c).catch((e) => host('error', e && e.message ? e.message : e)), flyTo, setRoute, setPosition, orbit };
+  window.addEventListener('error', (e) => host('error', e.message));
+  host('loaded', Cesium.VERSION);
+})();
+</script>
+</body>
+</html>

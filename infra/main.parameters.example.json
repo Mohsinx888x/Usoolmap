@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "namePrefix": { "value": "usoolmap" },
+    "location": { "value": "qatarcentral" },
+    "speechLocation": { "value": "qatarcentral" },
+    "postgresLocation": { "value": "qatarcentral" },
+    "image": { "value": "REPLACE_WITH_REGISTRY.azurecr.io/usoolmap-voice:1" },
+    "acrName": { "value": "REPLACE_WITH_REGISTRY" },
+    "grokModel": { "value": "latest" },
+    "dailyBudgetUsd": { "value": "5" },
+    "maxReplicas": { "value": 2 },
+    "monthlyBudgetAmount": { "value": 100 },
+    "budgetContactEmail": { "value": "REPLACE_WITH_YOUR_EMAIL" }
+  }
+}

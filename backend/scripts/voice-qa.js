@@ -12,6 +12,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createAzureSpeechSynthesizer } from '../src/azureSpeech.js';
 import { createMemoryBlobStore } from '../src/blob.js';
@@ -99,4 +100,5 @@ async function main() {
   console.log(`${result.generated} clips generated, ${result.failed} failed. Review sheet: ${result.sheet}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await main();
+// Only when run as a script; the tests import runVoiceQa and pass fakes.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) await main();

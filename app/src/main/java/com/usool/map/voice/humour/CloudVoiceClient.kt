@@ -132,6 +132,19 @@ class CloudVoiceClient(private val http: Http, private val credentials: CloudCre
         authed { http.postString("$base/v1/pronunciation/reports", body, headers = it) }
     }
 
+    /** Asks the backend's assistant to turn a request into one action; returns the action as JSON text. */
+    suspend fun assistant(text: String, language: String): String? {
+        val body = JsonObject().apply { addProperty("text", text.take(300)); addProperty("language", language) }.toString()
+        val o = JsonParser.parseString(authed { http.postString("$base/v1/assistant/command", body, headers = it) }).asJsonObject
+        return o.get("action")?.takeIf { it.isJsonObject }?.toString()
+    }
+
+    /** Deletes this installation's history on the backend. */
+    suspend fun deleteMyData() {
+        authed { http.postString("$base/v1/me/delete", "{}", headers = it) }
+        credentials.deviceToken = ""
+    }
+
     private fun selection(language: String, personality: String, humourLevel: Int) = JsonObject().apply {
         addProperty("language", language); addProperty("personality", personality); addProperty("humourLevel", humourLevel)
     }

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import Fastify from 'fastify';
+import { buildAssistantPrompt, validateAction } from './assistant.js';
 import { bearerToken, hashInstallId, safeEqual, signDeviceToken, verifyDeviceToken } from './auth.js';
 import { EVENT_TYPES } from './events.js';
 import { createRateLimiter } from './ratelimit.js';
@@ -74,6 +75,7 @@ const SCHEMAS = {
       anyOf: [{ required: ['spoken'] }, { required: ['ipa'] }],
     },
   },
+  assistant: { body: object({ text: { type: 'string', minLength: 1, maxLength: 300 }, language }, ['text', 'language']) },
   reports: { querystring: object({ status: { type: 'string', maxLength: 20 } }) },
 };
 
@@ -96,9 +98,10 @@ export function parseRange(header, size) {
 
 /**
  * @param {{config: object, store: object, queue: object, blobs: object, usage: object,
+ *   textGenerator: {generate: Function},
  *   now?: () => Date, logger?: import('pino').Logger}} deps `logger` omitted = no request logs
  */
-export function buildApp({ config, store, queue, blobs, usage, now = () => new Date(), logger }) {
+export function buildApp({ config, store, queue, blobs, usage, textGenerator, now = () => new Date(), logger }) {
   // trustProxy: Container Apps ingress terminates TLS and passes the client in X-Forwarded-For.
   const app = Fastify({ trustProxy: true, ...(logger && { loggerInstance: logger }) });
   app.decorateRequest('deviceId', null);
@@ -336,6 +339,27 @@ export function buildApp({ config, store, queue, blobs, usage, now = () => new D
     const id = randomUUID();
     await store.insertReport({ id, deviceId: request.deviceId, clipId: clip?.id ?? null, text, language: reportLanguage, note, createdAt: now() });
     return reply.code(201).send({ id });
+  });
+
+  app.post('/v1/assistant/command', { schema: SCHEMAS.assistant, onRequest: requireDeviceLimited }, async (request) => {
+    await requireBudget();
+    let reply;
+    try {
+      reply = await textGenerator.generate(buildAssistantPrompt(request.body));
+    } catch (error) {
+      request.log.error({ err: error.message }, 'assistant text generation failed');
+      throw new HttpError(503, 'generation_unavailable', 'The assistant cannot be reached right now');
+    }
+    await usage.record({ grokCalls: 1 });
+    // Only a validated action leaves the server; the model's own text is never returned.
+    return { action: validateAction(reply) };
+  });
+
+  // Erases the calling device and everything stored about it. Its token stops working at once
+  // because requireDevice no longer finds the device.
+  app.post('/v1/me/delete', { onRequest: requireDevice }, async (request) => {
+    await store.deleteDevice(request.deviceId);
+    return { deleted: true };
   });
 
   // ---- admin routes --------------------------------------------------------------------------

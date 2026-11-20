@@ -348,6 +348,11 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 OutlinedTextField(value = mapTiler, onValueChange = { mapTiler = it }, label = { Text("MapTiler API key (maptiler.com)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = mapillary, onValueChange = { mapillary = it }, label = { Text("Mapillary token, for street photos") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Button(onClick = { vm.saveImageryKeys(esri, mapbox, mapTiler, mapillary) }) { Text("Save keys") }
+                Text("3D globe (CesiumJS)", fontWeight = FontWeight.Medium)
+                Text("The globe works with no key, showing the satellite source above on a flat-terrain globe. A free Cesium ion token (ion.cesium.com) adds real terrain elevation and OpenStreetMap 3D buildings worldwide.", style = MaterialTheme.typography.bodySmall)
+                var cesium by remember { mutableStateOf(vm.container.settings.cesiumIonToken) }
+                OutlinedTextField(value = cesium, onValueChange = { cesium = it }, label = { Text("Cesium ion access token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveCesiumToken(cesium) }) { Text("Save token") }
                 Text("Keys stay on this phone. Free plans have monthly limits. If a key is wrong or its limit is used up, the satellite layer stays blank until the key is fixed or another source is chosen.", style = MaterialTheme.typography.bodySmall)
             }
 
@@ -372,6 +377,11 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     Switch(checked = ui.cameraAlerts && region.speedCameraAlertsAllowed, onCheckedChange = vm::setCameraAlerts, enabled = region.speedCameraAlertsAllowed)
                 }
                 Text("Camera positions and speed limits come from OpenStreetMap volunteers and can be missing or out of date. Always follow the signs on the road.", style = MaterialTheme.typography.bodySmall)
+            }
+
+            Section("Privacy") {
+                Text("UsoolMap keeps no record of where you drive. What is stored: jokes you have heard (so they are not repeated), your home position if you set one, and a random id for the voice service.", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = vm::deleteMyData) { Text("Delete my history") }
             }
 
             Section("About") {

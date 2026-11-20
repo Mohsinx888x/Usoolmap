@@ -20,6 +20,8 @@ class ValhallaRoutingProvider(
     private val http: Http,
     private val online: () -> Boolean,
     private val baseUrl: String = "https://valhalla1.openstreetmap.de",
+    /** When true, routes are asked to keep off toll roads wherever a toll-free way exists. */
+    private val avoidTolls: () -> Boolean = { false },
 ) : RoutingProvider {
     override val name = "Valhalla (OpenStreetMap)"
     override val requiresInternet = true
@@ -31,7 +33,14 @@ class ValhallaRoutingProvider(
         else -> Availability.Available
     }
 
-    override suspend fun route(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): Route {
+    override suspend fun route(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): Route =
+        parse(request(from, to, mode, language, alternates = 0), mode, name)
+
+    /** Asks Valhalla for up to two alternatives; it returns only those that differ meaningfully. */
+    override suspend fun routes(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String): List<Route> =
+        parseAll(request(from, to, mode, language, alternates = 2), mode, name)
+
+    private suspend fun request(from: GeoPoint, to: GeoPoint, mode: TravelMode, language: String, alternates: Int): String {
         val body = JsonObject().apply {
             add("locations", com.google.gson.JsonArray().apply {
                 add(JsonObject().apply { addProperty("lat", from.lat); addProperty("lon", from.lon) })
@@ -40,16 +49,20 @@ class ValhallaRoutingProvider(
             addProperty("costing", costing(mode))
             addProperty("units", "kilometers")
             addProperty("language", valhallaLanguage(language))
+            if (alternates > 0) addProperty("alternates", alternates)
+            if (avoidTolls() && mode != TravelMode.WALKING && mode != TravelMode.CYCLING) add("costing_options", tollFreeOptions(costing(mode)))
         }
-        val text = try {
+        return try {
             http.postString("$baseUrl/route", body.toString())
         } catch (e: Exception) {
             throw RoutingException("No route could be calculated online (${e.message}).", e)
         }
-        return parse(text, mode, name)
     }
 
     companion object {
+        /** Valhalla costing options that make toll roads a last resort. */
+        fun tollFreeOptions(costing: String): JsonObject = JsonObject().apply { add(costing, JsonObject().apply { addProperty("use_tolls", 0.0) }) }
+
         fun costing(mode: TravelMode) = when (mode) {
             TravelMode.WALKING -> "pedestrian"
             TravelMode.CYCLING -> "bicycle"
@@ -67,9 +80,21 @@ class ValhallaRoutingProvider(
 
         fun valhallaLanguage(tag: String): String = LANGUAGES[tag.substringBefore('-').lowercase()] ?: "en-US"
 
-        fun parse(json: String, mode: TravelMode, source: String): Route {
-            val trip = JsonParser.parseString(json).asJsonObject.getAsJsonObject("trip")
-                ?: throw RoutingException("The routing server returned no trip.")
+        /** The main trip followed by the entries of the response's `alternates` list. */
+        fun parseAll(json: String, mode: TravelMode, source: String): List<Route> {
+            val root = JsonParser.parseString(json).asJsonObject
+            val out = ArrayList<Route>()
+            out += parseTrip(root.getAsJsonObject("trip") ?: throw RoutingException("The routing server returned no trip."), mode, source)
+            root.getAsJsonArray("alternates")?.forEach { alt ->
+                alt.asJsonObject.getAsJsonObject("trip")?.let { t -> runCatching { parseTrip(t, mode, source) }.getOrNull()?.let { out += it } }
+            }
+            return out
+        }
+
+        fun parse(json: String, mode: TravelMode, source: String): Route =
+            parseTrip(JsonParser.parseString(json).asJsonObject.getAsJsonObject("trip") ?: throw RoutingException("The routing server returned no trip."), mode, source)
+
+        private fun parseTrip(trip: JsonObject, mode: TravelMode, source: String): Route {
             val summary = trip.getAsJsonObject("summary")
             val geometry = ArrayList<GeoPoint>()
             val maneuvers = ArrayList<Maneuver>()

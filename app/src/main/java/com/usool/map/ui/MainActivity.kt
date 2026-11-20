@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
                         // The map stays composed under the other tabs so its state and tiles are kept.
                         val streetOpen = ui.streetImage != null && !nav.active
                         MapScreen(vm, visible = tab == Tab.MAP || nav.active || streetOpen, contentPadding = padding, streetViewOpen = streetOpen)
+                        if (ui.globeOpen && !nav.active) GlobeScreen(vm, Modifier.padding(padding))
                         val street = ui.streetImage
                         if (street != null && !nav.active) {
                             StreetViewScreen(street, vm, Modifier.padding(padding))

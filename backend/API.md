@@ -46,9 +46,25 @@ Errors: `{ "error": { "code": "…", "message": "…" } }` with status 400, 401,
 | `POST /v1/clips/regenerate` | `{ "eventTypes": [..] (optional), "language", "personality", "humourLevel", "count": 1..10 }` | `202 { "queued": int, "quotaRemaining": int }`: always asks for brand-new clips |
 | `GET /v1/clips/{id}/audio` | supports `Range` | `audio/mpeg` |
 | `POST /v1/history` | `{ "plays": [ { "clipId", "playedAt": ISO-8601 } ] }` | `{ "accepted": int }` |
+| `POST /v1/assistant/command` | `{ "text": 1..300 chars, "language" }` | `{ "action": object or null }`: the request turned into one action from the fixed catalogue below, validated on the server. `null` when nothing fits. Model text is never returned. |
+| `POST /v1/me/delete` | | `{ "deleted": true }`: removes everything stored about this device; its token stops working |
 | `POST /v1/pronunciation/reports` | `{ "clipId" (optional), "text", "language", "note" }` | `201 { "id" }` |
 | `POST /v1/admin/pregenerate` | `{ "language", "personality", "humourLevel", "perEvent": 1..20 }` | `202 { "queued": int }` |
 | `GET /v1/admin/usage` | `?days=7` | per-day Grok calls, TTS characters, bytes stored, estimated cost, and the budget |
 | `GET /v1/admin/pronunciation` | `?language` | dictionary entries |
 | `PUT /v1/admin/pronunciation` | `{ "language", "term", "spoken" (alias) or "ipa", "reviewed": bool }` | the stored entry |
 | `GET /v1/admin/pronunciation/reports` | `?status=open` | reports from users |
+
+## Assistant actions
+
+`POST /v1/assistant/command` can only ever return one of these, with exactly these parameters.
+The app validates the action again before acting on it.
+
+| `action` | Parameters |
+| --- | --- |
+| `navigate_home`, `open_globe`, `show_traffic`, `download_offline_map`, `generate_jokes`, `stop_navigation` | none |
+| `navigate_to` | `query`: 2 to 120 characters, one line |
+| `find_nearby` | `concept`: `halal_restaurant`, `restaurant`, `hotel`, `mosque`, `cafe`, `pharmacy`, `hospital`, `atm`, `bank`, `fuel`, `supermarket`, `mall`, `attraction`, `museum`, `park`, `parking`, `charging`, `airport`, `station`, `police`, `toilets`, `embassy` |
+| `set_3d`, `set_satellite`, `avoid_tolls` | `enabled`: boolean |
+| `set_voice_mode` | `mode`: `professional`, `funny`, `smart_mixed`, `muted` |
+| `set_voice_language` | `language`: one of the app's voice languages, e.g. `ar-QA`, `en-GB` |

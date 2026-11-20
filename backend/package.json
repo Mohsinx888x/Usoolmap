@@ -10,7 +10,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
+    "test": "node --test --test-reporter=spec --test-concurrency=1 \"test/*.test.js\"",
     "voice-qa": "node scripts/voice-qa.js"
   },
   "dependencies": {

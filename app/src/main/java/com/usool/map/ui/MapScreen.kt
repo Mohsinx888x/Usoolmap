@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Satellite
 import androidx.compose.material.icons.filled.Streetview
 import androidx.compose.material.icons.filled.Search
@@ -202,7 +203,7 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues,
     }
     LaunchedEffect(c, ui.streetImage?.id) { ui.streetImage?.let { c?.moveTo(it.point, maxOf(c.zoom, 17.5)) } }
     LaunchedEffect(c, ui.builtGeoJson) { c?.setBuiltBuildings(ui.builtGeoJson) }
-    LaunchedEffect(c, nav.incidents, nav.cameras) { c?.setRoadInfo(nav.incidents, nav.cameras) }
+    LaunchedEffect(c, nav.incidents, ui.incidents, nav.cameras) { c?.setRoadInfo(nav.incidents + ui.incidents, nav.cameras) }
     LaunchedEffect(c, ui.destination) {
         c ?: return@LaunchedEffect
         val p = ui.destination?.point
@@ -258,6 +259,9 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues,
                             else Icon(Icons.Filled.Streetview, contentDescription = "Street view")
                         }
                     }
+                    if (!nav.active) {
+                        SmallFloatingActionButton(onClick = { vm.setGlobeOpen(true) }) { Icon(Icons.Filled.Public, contentDescription = "3D globe") }
+                    }
                     SmallFloatingActionButton(onClick = { vm.set3D(!ui.is3D) }) { Text(if (ui.is3D) "2D" else "3D", fontWeight = FontWeight.Bold) }
                     if (!nav.active) {
                         SmallFloatingActionButton(onClick = vm::buildMissing3D) {
@@ -296,7 +300,7 @@ private fun SearchBar(ui: MapUiState, vm: AppViewModel) {
                 onValueChange = vm::onQueryChange,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("Search a place, or a kind of place nearby") },
+                placeholder = { Text("Search or ask: \"take me home\", \"nearest pharmacy\"") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
                     when {
@@ -415,9 +419,22 @@ private fun DestinationCard(ui: MapUiState, region: RegionProfile, vm: AppViewMo
             val translated = listOfNotNull(dest.name.takeIf { dest.localName != null }, dest.translation, dest.categoryLabel).distinct().joinToString(" · ")
             if (translated.isNotEmpty()) Text(translated, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(dest.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("Street view here", Modifier.clickable { vm.openStreetView(dest.point) }, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Street view here", Modifier.clickable { vm.openStreetView(dest.point) }, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                Text("Set as home", Modifier.clickable { vm.setHome(dest.point) }, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            }
             val route = ui.route
             if (route != null) {
+                if (ui.routeOptions.size > 1) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ui.routeOptions.forEachIndexed { i, option ->
+                            FilterChip(
+                                selected = option === route, onClick = { vm.chooseRoute(option) },
+                                label = { Text((if (i == 0) "Fastest · " else "Option ${i + 1} · ") + "${formatDuration(option.durationS)} · ${region.formatDistance(option.distanceM)}") },
+                            )
+                        }
+                    }
+                }
                 RouteSummary(route, region)
                 Button(onClick = vm::startNavigation, modifier = Modifier.fillMaxWidth()) { Text("Start navigation") }
             } else {

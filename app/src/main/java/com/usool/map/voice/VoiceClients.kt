@@ -88,7 +88,9 @@ class GrokJokeClient(private val http: Http, private val keySource: () -> String
         return ask(reactionPrompt(language, humourLevel, avoid, strict = true), situation)?.takeIf { ArabicText.isVowelled(it) } ?: first
     }
 
-    private suspend fun ask(system: String, user: String): String? {
+    /** One question to Grok with [system] as its instructions; null when there is no key or the call fails. */
+    suspend fun ask(system: String, user: String): String? {
+        if (!configured) return null
         val body = JsonObject().apply {
             addProperty("model", model)
             addProperty("temperature", 1.0)
