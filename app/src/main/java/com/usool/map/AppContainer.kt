@@ -107,6 +107,18 @@ class Settings(context: Context) {
         get() = runCatching { com.usool.map.map.MapLabels.valueOf(prefs.getString("map_labels", null) ?: "") }.getOrDefault(com.usool.map.map.MapLabels.PHONE)
         set(v) = prefs.edit().putString("map_labels", v.name).apply()
 
+    /**
+     * Imagery provider keys the user typed into Settings. They stay in the app's private storage
+     * on this phone and are sent only to the provider they belong to.
+     */
+    var mapTilerKey: String
+        get() = prefs.getString("maptiler_key", "") ?: ""
+        set(v) = prefs.edit().putString("maptiler_key", v.trim()).apply()
+
+    var mapillaryToken: String
+        get() = prefs.getString("mapillary_token", "") ?: ""
+        set(v) = prefs.edit().putString("mapillary_token", v.trim()).apply()
+
     var cameraAlerts: Boolean
         get() = prefs.getBoolean("camera_alerts", true)
         set(v) = prefs.edit().putBoolean("camera_alerts", v).apply()
@@ -127,14 +139,17 @@ class AppContainer(private val app: Application) {
     val search = SearchRepository(NominatimProvider(http))
 
     /** Mapillary first (worldwide, needs a token), then Panoramax (open, no key). */
-    val streetView = StreetViewRepository(listOf(MapillaryProvider(http, BuildConfig.MAPILLARY_TOKEN), PanoramaxProvider(http)))
+    val streetView = StreetViewRepository(
+        listOf(MapillaryProvider(http) { settings.mapillaryToken.ifBlank { BuildConfig.MAPILLARY_TOKEN } }, PanoramaxProvider(http)),
+    )
 
-    val satellite = SatelliteCatalog.select(
+    /** Chosen each time it is read: a key saved in Settings wins over one compiled into the build. */
+    val satellite get() = SatelliteCatalog.select(
         customUrl = BuildConfig.SATELLITE_TILES_URL,
         customName = BuildConfig.SATELLITE_NAME,
         customMaxZoom = BuildConfig.SATELLITE_MAX_ZOOM,
         customAttribution = BuildConfig.SATELLITE_ATTRIBUTION,
-        mapTilerKey = BuildConfig.MAPTILER_API_KEY,
+        mapTilerKey = settings.mapTilerKey.ifBlank { BuildConfig.MAPTILER_API_KEY },
     )
 
     private val themeJson: String by lazy { app.assets.open("map_themes.json").use { it.readBytes().toString(Charsets.UTF_8) } }

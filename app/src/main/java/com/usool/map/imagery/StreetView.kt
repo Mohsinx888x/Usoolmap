@@ -95,7 +95,11 @@ class PanoramaxProvider(private val http: Http, private val baseUrl: String = "h
  * Mapillary: the largest worldwide street-photo collection (CC BY-SA 4.0). Needs a free client
  * token from mapillary.com/developer, supplied as `MAPILLARY_TOKEN`.
  */
-class MapillaryProvider(private val http: Http, private val token: String) : StreetImageryProvider {
+class MapillaryProvider(private val http: Http, private val tokenSource: () -> String) : StreetImageryProvider {
+    constructor(http: Http, token: String) : this(http, { token })
+
+    /** Read on every use, so a token typed into Settings takes effect without restarting. */
+    private val token: String get() = tokenSource().trim()
     override val name = "Mapillary"
     override val configured get() = token.isNotBlank()
     override val coverage get() = if (configured) CoverageTiles("https://tiles.mapillary.com/maps/vtp/mly1_public/2/{z}/{x}/{y}?access_token=$token", "sequence", 6, 14) else null

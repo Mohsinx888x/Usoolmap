@@ -38,6 +38,7 @@ import com.usool.map.BuildConfig
 import com.usool.map.R
 import com.usool.map.core.Availability
 import com.usool.map.core.DrivingSide
+import com.usool.map.imagery.SatelliteCatalog
 import com.usool.map.map.OfflineRegionInfo
 import com.usool.map.map.OfflineRegions
 import com.usool.map.map.RoadDataState
@@ -203,6 +204,22 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     }
                 }
                 Text("Places with no name mapped in the chosen language keep their local name.", style = MaterialTheme.typography.bodySmall)
+            }
+
+            Section("Satellite and street imagery") {
+                val source = vm.container.satellite.also { ui.imageryVersion }
+                Text("Satellite imagery now: ${source.name}, finest detail about ${SatelliteCatalog.formatResolution(source.bestResolutionM(25.0))} per pixel.", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "For sharp imagery (roofs, cars, lane markings where the provider has it), create a free account at maptiler.com, copy your API key and paste it here. " +
+                        "For street photos worldwide, paste a free Mapillary client token from mapillary.com/developer. Keys stay on this phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                var mapTiler by remember { mutableStateOf(vm.container.settings.mapTilerKey) }
+                var mapillary by remember { mutableStateOf(vm.container.settings.mapillaryToken) }
+                OutlinedTextField(value = mapTiler, onValueChange = { mapTiler = it }, label = { Text("MapTiler API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = mapillary, onValueChange = { mapillary = it }, label = { Text("Mapillary client token") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveImageryKeys(mapTiler, mapillary) }) { Text("Save keys") }
+                Text("Free plans have monthly limits. If a key is wrong or its limit is used up, the satellite layer stays blank until the key is fixed or removed.", style = MaterialTheme.typography.bodySmall)
             }
 
             Section("Region: $country") {

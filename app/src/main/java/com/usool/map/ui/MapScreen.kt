@@ -164,7 +164,7 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
 
     // The style is (re)loaded whenever the look changes; everything drawn on top is then restored
     // by the effects below, which all depend on the new controller.
-    LaunchedEffect(mapRef, dark, labelLanguage) {
+    LaunchedEffect(mapRef, dark, labelLanguage, ui.imageryVersion) {
         val map = mapRef ?: return@LaunchedEffect
         map.setStyle(Style.Builder().fromUri(MapConfig.STYLE_URL)) { style ->
             val c = MapController(

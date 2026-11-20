@@ -63,10 +63,13 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 56 unit tests
+./gradlew testDebugUnitTest                    # 57 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```
+
+The MapTiler key (sharp satellite imagery) and the Mapillary token (worldwide street photos) can also
+be pasted into the app under Settings, where they are stored on the phone only.
 
 All keys are optional. With none set the app still runs: professional voice, maps, search,
 routing, offline regions and the Satellite Center work; humorous voice and live traffic report

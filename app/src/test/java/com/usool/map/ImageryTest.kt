@@ -124,3 +124,17 @@ class StreetViewTest {
         }
     }
 }
+
+class ImageryKeysTest {
+    @Test fun mapillaryTokenIsReadEachTimeSoSettingsChangesApply() {
+        var token = ""
+        val provider = MapillaryProvider(com.usool.map.core.Http()) { token }
+        assertFalse(provider.configured)
+        assertNull(provider.coverage)
+        token = "  MLY|123|abc  "
+        assertTrue(provider.configured)
+        assertTrue(provider.coverage!!.tileUrl.endsWith("access_token=MLY|123|abc"))
+        token = ""
+        assertFalse(provider.configured)
+    }
+}

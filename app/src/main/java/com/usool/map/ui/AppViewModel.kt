@@ -40,6 +40,8 @@ data class MapUiState(
     val voiceLanguage: String = "en-US",
     val cameraAlerts: Boolean = true,
     val zoom: Double = 10.0,
+    /** Bumped when imagery keys change, so the map rebuilds its imagery layers. */
+    val imageryVersion: Int = 0,
     val mapTheme: com.usool.map.map.MapThemeMode = com.usool.map.map.MapThemeMode.AUTO,
     val mapLabels: com.usool.map.map.MapLabels = com.usool.map.map.MapLabels.PHONE,
     val satellite: Boolean = false,
@@ -171,6 +173,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setMapLabels(labels: com.usool.map.map.MapLabels) {
         container.settings.mapLabels = labels
         _ui.update { it.copy(mapLabels = labels) }
+    }
+
+    /** Saves the provider keys typed in Settings and reloads the map's imagery with them. */
+    fun saveImageryKeys(mapTilerKey: String, mapillaryToken: String) {
+        container.settings.mapTilerKey = mapTilerKey
+        container.settings.mapillaryToken = mapillaryToken
+        _ui.update { it.copy(imageryVersion = it.imageryVersion + 1, satellite = it.satellite || mapTilerKey.isNotBlank()) }
+        val s = container.satellite
+        showMessage("Saved. Satellite imagery: ${s.name}. Street photos: ${container.streetView.activeProviders.joinToString(" and ") { it.name }}.")
     }
 
     fun setSatellite(enabled: Boolean) = _ui.update { it.copy(satellite = enabled) }
