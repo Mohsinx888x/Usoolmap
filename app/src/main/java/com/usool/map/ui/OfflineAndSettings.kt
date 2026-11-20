@@ -187,6 +187,25 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 Text(String.format(Locale.US, "Saved humorous clips: %d (%.1f MB)", voice.cache.clipCount, voice.cache.sizeBytes / 1_048_576.0), style = MaterialTheme.typography.bodySmall)
             }
 
+            Section("Search and translation") {
+                var langOpen by remember { mutableStateOf(false) }
+                val mine = VoiceLanguages.forTag(ui.searchLanguage)
+                OutlinedButton(onClick = { langOpen = true }) { Text("My language: ${mine.label}") }
+                DropdownMenu(expanded = langOpen, onDismissRequest = { langOpen = false }) {
+                    VoiceLanguages.all.forEach { lang -> DropdownMenuItem(text = { Text(lang.label) }, onClick = { vm.setSearchLanguage(lang.tag); langOpen = false }) }
+                }
+                Text(
+                    "You can type or speak your search in this language whatever language the app is in. Searching for a kind of place (for example \"مطعم حلال\", \"فندق\", \"hotel\") lists matching places inside the area on the map, " +
+                        "with the name as written locally, its translation where one is known, and the address in your language.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(onClick = vm::downloadTranslation, enabled = !ui.translationBusy) { Text(if (ui.translationBusy) "Downloading…" else "Download offline translation for the area on the map") }
+                Text(
+                    "Translates local names that have no translation on the map (about 30 MB per language, from Google). Download it before travelling: Google's servers cannot be reached from mainland China.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
             Section("Map appearance") {
                 Text("Colours", fontWeight = FontWeight.Medium)
                 com.usool.map.map.MapThemeMode.entries.forEach { mode ->

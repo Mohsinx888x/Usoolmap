@@ -24,6 +24,12 @@ import kotlinx.coroutines.launch
 data class MapUiState(
     val query: String = "",
     val results: List<Place> = emptyList(),
+    /** What the last search understood, e.g. "مطعم حلال (清真, 穆斯林, halal): 12 in the area". */
+    val searchHeading: String? = null,
+    val searchLanguage: String = "en-US",
+    /** Language of place names where the map is looking, e.g. "zh" over China. */
+    val areaLanguage: String = "en",
+    val translationBusy: Boolean = false,
     val searching: Boolean = false,
     val destination: Place? = null,
     val mode: TravelMode = TravelMode.DRIVING,
@@ -61,6 +67,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             voiceMode = container.settings.voiceMode,
             voiceLanguage = container.settings.voiceLanguage,
             cameraAlerts = container.settings.cameraAlerts,
+            searchLanguage = container.settings.searchLanguage,
             mapTheme = container.settings.mapTheme,
             mapLabels = container.settings.mapLabels,
         ),
@@ -94,22 +101,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onQueryChange(text: String) = _ui.update { it.copy(query = text) }
 
+    private var areaCountryKey: Pair<Long, Long>? = null
+    private var areaCountry: String? = null
+
+    /** Country under the middle of the map, looked up once per map region. */
+    private suspend fun countryOfMap(centre: GeoPoint?): String {
+        centre ?: return container.country.value
+        val key = Math.round(centre.lat * 2) to Math.round(centre.lon * 2)
+        if (key != areaCountryKey) {
+            areaCountry = container.search.countryAt(centre)
+            areaCountryKey = key
+        }
+        return areaCountry ?: container.country.value
+    }
+
     fun submitSearch(text: String = _ui.value.query) {
         if (text.isBlank()) return
-        _ui.update { it.copy(query = text, searching = true, results = emptyList()) }
+        val bounds = _ui.value.visibleBounds
+        val concept = com.usool.map.search.PoiConcepts.match(text)
+        if (concept != null && com.usool.map.core.CoordinateParser.parse(text) == null && (bounds == null || bounds.areaKm2 > com.usool.map.search.SearchRepository.MAX_AREA_KM2)) {
+            _ui.update { it.copy(query = text, message = "Move the map to a city and zoom in, then search for \"$text\" again. Places are searched inside the area on screen.") }
+            return
+        }
+        _ui.update { it.copy(query = text, searching = true, results = emptyList(), searchHeading = null) }
         viewModelScope.launch {
             try {
-                val results = container.search.search(text, currentPoint() ?: _ui.value.visibleBounds?.let { GeoPoint((it.south + it.north) / 2, (it.west + it.east) / 2) }, container.voice.language.tag)
-                _ui.update { it.copy(searching = false, results = results, message = if (results.isEmpty()) "No places found for \"$text\"." else null) }
+                val centre = bounds?.let { GeoPoint((it.south + it.north) / 2, (it.west + it.east) / 2) }
+                val areaLanguage = com.usool.map.search.AreaLanguage.forCountry(countryOfMap(centre))
+                val found = container.search.search(text, currentPoint() ?: centre, _ui.value.searchLanguage, bounds, areaLanguage)
+                val empty = if (concept != null) "No ${concept.label("en").lowercase()} is mapped in this area. OpenStreetMap coverage here may be incomplete." else "No places found for \"$text\"."
+                _ui.update { it.copy(searching = false, results = found.places, searchHeading = found.heading, areaLanguage = areaLanguage, message = if (found.places.isEmpty()) empty else null) }
             } catch (e: Exception) {
                 _ui.update { it.copy(searching = false, message = e.message ?: "Search failed.") }
             }
         }
     }
 
+    fun setSearchLanguage(tag: String) {
+        container.settings.searchLanguage = tag
+        _ui.update { it.copy(searchLanguage = tag) }
+    }
+
+    /**
+     * Downloads on-device translation for the user's language and the language of the area on
+     * the map, so that names found later can be translated without a connection.
+     */
+    fun downloadTranslation() {
+        if (!online.value) { showMessage("Downloading translation needs an internet connection."); return }
+        _ui.update { it.copy(translationBusy = true) }
+        viewModelScope.launch {
+            val mine = _ui.value.searchLanguage
+            val bounds = _ui.value.visibleBounds
+            val centre = bounds?.let { GeoPoint((it.south + it.north) / 2, (it.west + it.east) / 2) }
+            val local = com.usool.map.search.AreaLanguage.forCountry(countryOfMap(centre))
+            val text = try {
+                container.translator.download(listOf(mine, local))
+                "Translation is ready between ${mine.substringBefore('-')} and $local, and works offline."
+            } catch (e: Exception) {
+                "Translation could not be downloaded (${e.message}). It needs access to Google's servers."
+            }
+            _ui.update { it.copy(translationBusy = false, areaLanguage = local, message = text) }
+        }
+    }
+
     fun selectPlace(place: Place) {
         container.setDetectedCountry(place.countryCode)
-        _ui.update { it.copy(destination = place, results = emptyList(), query = place.name, route = null) }
+        _ui.update { it.copy(destination = place, results = emptyList(), searchHeading = null, query = place.localName ?: place.name, route = null) }
     }
 
     /** A long press on the map: use the point as the destination and name it when online. */
@@ -117,7 +174,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val label = String.format(java.util.Locale.US, "%.5f, %.5f", point.lat, point.lon)
         _ui.update { it.copy(destination = Place(label, "Dropped pin", point), results = emptyList(), route = null) }
         viewModelScope.launch {
-            val named = container.search.reverse(point, container.voice.language.tag) ?: return@launch
+            val named = container.search.reverse(point, _ui.value.searchLanguage) ?: return@launch
             container.setDetectedCountry(named.countryCode)
             _ui.update { if (it.destination?.point == point) it.copy(destination = named.copy(point = point)) else it }
         }

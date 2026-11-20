@@ -14,6 +14,11 @@ object CoordinateParser {
         val input = text.trim()
         if (input.isEmpty()) return null
 
+        // "gcj:23.1291,113.2644": a position copied from a Chinese map app, converted to true coordinates.
+        Regex("""^gcj(?:-?02)?\s*[: ]\s*(.+)$""", RegexOption.IGNORE_CASE).matchEntire(input)?.let { m ->
+            return parse(m.groupValues[1])?.let { Gcj02.toWgs84(it) }
+        }
+
         GEO_URI.find(input)?.let { m ->
             return valid(m.groupValues[1].toDouble(), m.groupValues[2].toDouble())
         }

@@ -23,6 +23,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
+        // Phone and tablet processors only; emulator-only x86 libraries would double the download.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "GROK_API_KEY", "\"${secret("GROK_API_KEY")}\"")
         buildConfigField("String", "GROK_MODEL", "\"${secret("GROK_MODEL", "grok-4")}\"")
         buildConfigField("String", "AZURE_SPEECH_KEY", "\"${secret("AZURE_SPEECH_KEY")}\"")
@@ -70,6 +72,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.13.1")
     implementation("io.coil-kt:coil:2.7.0")
+    implementation("com.google.mlkit:translate:17.0.3")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

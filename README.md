@@ -17,6 +17,7 @@ routing and positioning work wherever the underlying data exists.
 | Satellite view | Top-down imagery under the map labels, zoomable to level 21, with nearby tiles fetched ahead and a 512 MB on-phone tile cache for speed. Free Sentinel-2 (about 10 m per pixel) by default; 30 cm-class imagery when a MapTiler key or a licensed tile URL is configured. The map states the real detail of what is on screen. | `imagery/Satellite.kt`, `map/MapController.kt` |
 | Street view | Real street-level photos from Panoramax (no key) and Mapillary (free token). Green lines mark covered streets; tap to open the nearest photo, step along the street, pinch to zoom, drag 360° photos around. Preview loads first, then full detail; photos are cached. | `imagery/StreetView.kt`, `ui/StreetViewScreen.kt` |
 | Search | Worldwide place and address search (Nominatim), multilingual names, plus coordinates in decimal, DMS and `geo:` form resolved on the device. | `search/`, `core/CoordinateParser.kt` |
+| Nearby search in your language | Type or speak a kind of place in your own language ("مطعم حلال", "فندق", "pharmacy"): it is searched by category inside the area on the map, using the local term where it matters (halal is 清真 in Chinese). Results show the name as written locally, a translation, and the address in your language. Optional on-device translation (ML Kit). | `search/PoiConcepts.kt`, `search/Search.kt`, `search/MlKitTranslator.kt` |
 | Routing | Drive, walk, cycle, motorcycle, truck (Valhalla); bus, metro, rail, public transport (Transitous). Only modes that can be routed right now are shown. | `routing/OnlineRouting.kt` |
 | Offline maps and routing | Download any rectangle on Earth. Map tiles are stored by MapLibre; a road graph is built from OSM so drive / motorcycle / walk / cycle routes are calculated on the phone. | `map/OfflineRegions.kt`, `routing/RoadGraph.kt`, `routing/OfflineRouter.kt` |
 | Navigation | Turn-by-turn progress, advance and at-turn announcements, rerouting, arrival, foreground service that runs only during a route. | `nav/` |
@@ -38,6 +39,13 @@ routing and positioning work wherever the underlying data exists.
 - **Street view** shows photos other people have uploaded. Many streets, especially outside
   Europe and North America, have none; the app then says so. It is not Google Street View, whose
   licence does not allow use on a non-Google map. 360° photos are shown as a flat strip.
+- **China.** Positions are true WGS-84, matching OpenStreetMap and the app's tiles, so there is no
+  GCJ-02 shift on the map; coordinates copied from Chinese map apps can be entered as
+  `gcj:lat,lon`. BeiDou is used whenever the phone's receiver tracks it. OpenStreetMap has far
+  fewer shops and restaurants in China than local apps, and Google-hosted pieces (translation
+  model downloads, speech recognition on most phones) are unreachable there without preparation.
+  Whether the default map, search and routing servers are reachable from inside China has not
+  been tested.
 - **Live traffic** needs a TomTom key and TomTom coverage. Without a key the app says the service
   is unavailable; it never shows invented traffic.
 - **Alternative routes** have no provider yet and are reported as unavailable.
@@ -64,7 +72,7 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 58 unit tests
+./gradlew testDebugUnitTest                    # 71 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```

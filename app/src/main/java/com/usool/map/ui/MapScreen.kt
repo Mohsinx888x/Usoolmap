@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Satellite
 import androidx.compose.material.icons.filled.Streetview
@@ -196,7 +197,11 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
     LaunchedEffect(c, ui.destination) {
         c ?: return@LaunchedEffect
         val p = ui.destination?.point
-        if (p != null && p != shownDestination && !nav.active) c.moveTo(p)
+        if (p != null && p != shownDestination && !nav.active) {
+            // A city or district is framed whole, so the next search covers all of it.
+            val b = ui.destination?.bounds
+            if (b != null && b.areaKm2 > 4.0) c.fit(listOf(GeoPoint(b.south, b.west), GeoPoint(b.north, b.east))) else c.moveTo(p)
+        }
         shownDestination = p
     }
     LaunchedEffect(c, gnss.fix, nav.progress) {
@@ -270,6 +275,11 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
 @Composable
 private fun SearchBar(ui: MapUiState, vm: AppViewModel) {
     val keyboard = LocalSoftwareKeyboardController.current
+    // Voice search: the phone's speech recogniser listens in the user's search language.
+    val speech = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { result ->
+        val heard = result.data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+        if (!heard.isNullOrBlank()) vm.submitSearch(heard)
+    }
     Surface(shape = RoundedCornerShape(28.dp), shadowElevation = 4.dp) {
         Column {
             TextField(
@@ -277,12 +287,20 @@ private fun SearchBar(ui: MapUiState, vm: AppViewModel) {
                 onValueChange = vm::onQueryChange,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                placeholder = { Text("Search any place, address or coordinates") },
+                placeholder = { Text("Search a place, or a kind of place nearby") },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 trailingIcon = {
                     when {
                         ui.searching -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         ui.query.isNotEmpty() || ui.destination != null -> IconButton(onClick = vm::clearDestination) { Icon(Icons.Filled.Close, contentDescription = "Clear") }
+                        else -> IconButton(onClick = {
+                            val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, ui.searchLanguage)
+                            try { speech.launch(intent) } catch (e: android.content.ActivityNotFoundException) {
+                                vm.showMessage("This phone has no speech recognition service. Type your search instead.")
+                            }
+                        }) { Icon(Icons.Filled.Mic, contentDescription = "Search by voice") }
                     }
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -294,12 +312,22 @@ private fun SearchBar(ui: MapUiState, vm: AppViewModel) {
             )
             if (ui.results.isNotEmpty()) {
                 HorizontalDivider()
-                LazyColumn(Modifier.heightIn(max = 280.dp)) {
+                ui.searchHeading?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.secondary) }
+                val region = vm.container.region()
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     items(ui.results) { place ->
                         Column(Modifier.fillMaxWidth().clickable { keyboard?.hide(); vm.selectPlace(place) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                            Text(place.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            // The name as written on the sign, then its translation.
+                            Text(place.localName ?: place.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val second = listOfNotNull(place.name.takeIf { place.localName != null }, place.translation).distinct().joinToString(" · ")
+                            if (second.isNotEmpty()) Text(second, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val kind = listOfNotNull(place.categoryLabel, place.distanceM?.let { region.formatDistance(it) }).joinToString(" · ")
+                            if (kind.isNotEmpty()) Text(kind, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.secondary)
                             Text(place.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
+                    }
+                    ui.results.firstNotNullOfOrNull { it.note }?.let { note ->
+                        item { Text(note, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall) }
                     }
                 }
             }
@@ -374,7 +402,9 @@ private fun DestinationCard(ui: MapUiState, region: RegionProfile, vm: AppViewMo
     val dest = ui.destination ?: return
     Surface(shape = RoundedCornerShape(20.dp), shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(dest.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(dest.localName ?: dest.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val translated = listOfNotNull(dest.name.takeIf { dest.localName != null }, dest.translation, dest.categoryLabel).distinct().joinToString(" · ")
+            if (translated.isNotEmpty()) Text(translated, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(dest.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("Street view here", Modifier.clickable { vm.openStreetView(dest.point) }, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
             val route = ui.route

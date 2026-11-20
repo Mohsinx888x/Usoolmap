@@ -115,6 +115,11 @@ class Settings(context: Context) {
         get() = prefs.getString("maptiler_key", "") ?: ""
         set(v) = prefs.edit().putString("maptiler_key", v.trim()).apply()
 
+    /** Language the user searches and reads results in (BCP-47), independent of the app's interface. */
+    var searchLanguage: String
+        get() = prefs.getString("search_language", null) ?: VoiceLanguages.forTag(Locale.getDefault().toLanguageTag()).tag
+        set(v) = prefs.edit().putString("search_language", v).apply()
+
     var esriKey: String
         get() = prefs.getString("esri_key", "") ?: ""
         set(v) = prefs.edit().putString("esri_key", v.trim()).apply()
@@ -149,7 +154,8 @@ class AppContainer(private val app: Application) {
     val gnss = GnssMonitor(app)
     val offlineRegions = OfflineRegions(app, http, scope)
     val buildings = Buildings3D(http)
-    val search = SearchRepository(NominatimProvider(http))
+    val translator = com.usool.map.search.MlKitTranslator()
+    val search = SearchRepository(NominatimProvider(http), translator)
 
     /** Mapillary first (worldwide, needs a token), then Panoramax (open, no key). */
     val streetView = StreetViewRepository(
