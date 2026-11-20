@@ -58,8 +58,13 @@ data class MapUiState(
     val streetMode: Boolean = false,
     val streetLoading: Boolean = false,
     /** Photos near the tapped point, nearest first; non-null while the viewer is open. */
-    val streetImages: List<StreetImage>? = null,
-    val streetIndex: Int = 0,
+    val streetImage: StreetImage? = null,
+    /** Photos that can be stepped to from the current one, by direction. */
+    val streetHops: List<com.usool.map.imagery.StreetHop> = emptyList(),
+    /** Point the user chose on the map, to show how far away the photo was taken. */
+    val streetPicked: GeoPoint? = null,
+    /** Compass direction the viewer is looking, in 5° steps; drives the camera cone on the map. */
+    val streetBearing: Int = 0,
 )
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -272,7 +277,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Opens the street-level photos nearest to [point]. Says so plainly when there are none. */
+    /** Puts the street-view camera at [point]: shows the photo taken nearest to it. */
     fun openStreetView(point: GeoPoint) {
         if (!online.value) { showMessage("Street photos need an internet connection."); return }
         if (_ui.value.streetLoading) return
@@ -280,10 +285,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val images = container.streetView.near(point)
-                if (images.isEmpty()) {
+                val chosen = com.usool.map.imagery.StreetNavigator.pick(images, point)
+                if (chosen == null) {
                     _ui.update { it.copy(streetLoading = false, message = "No street-level photos have been taken here yet.") }
                 } else {
-                    _ui.update { it.copy(streetLoading = false, streetImages = images.take(40), streetIndex = 0) }
+                    _ui.update {
+                        it.copy(
+                            streetLoading = false, streetMode = true, streetImage = chosen, streetPicked = point,
+                            streetHops = com.usool.map.imagery.StreetNavigator.hops(chosen, images),
+                            streetBearing = (chosen.headingDeg ?: 0.0).toInt(),
+                        )
+                    }
+                    loadStreetHops(chosen)
                 }
             } catch (e: Exception) {
                 _ui.update { it.copy(streetLoading = false, message = e.message ?: "Street photos could not be loaded.") }
@@ -291,12 +304,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun stepStreetImage(delta: Int) = _ui.update { s ->
-        val n = s.streetImages?.size ?: return@update s
-        s.copy(streetIndex = (s.streetIndex + delta).coerceIn(0, n - 1))
+    /** Steps to a neighbouring photo without leaving the viewer. */
+    fun goToStreetImage(image: StreetImage) {
+        _ui.update { it.copy(streetImage = image, streetPicked = null, streetHops = emptyList()) }
+        viewModelScope.launch { loadStreetHops(image) }
     }
 
-    fun closeStreetView() = _ui.update { it.copy(streetImages = null, streetIndex = 0) }
+    /** Finds the photos around [image] so arrows can be offered from it. */
+    private suspend fun loadStreetHops(image: StreetImage) {
+        val around = runCatching { container.streetView.near(image.point, 60.0) }.getOrNull() ?: return
+        _ui.update { if (it.streetImage?.id == image.id) it.copy(streetHops = com.usool.map.imagery.StreetNavigator.hops(image, around)) else it }
+    }
+
+    fun setStreetBearing(bearingDeg: Double) {
+        val stepped = (Math.round(bearingDeg / 5.0) * 5 % 360).toInt()
+        if (stepped != _ui.value.streetBearing) _ui.update { it.copy(streetBearing = stepped) }
+    }
+
+    fun closeStreetView() = _ui.update { it.copy(streetImage = null, streetHops = emptyList(), streetPicked = null) }
 
     fun buildMissing3D() {
         val bounds = _ui.value.visibleBounds ?: return

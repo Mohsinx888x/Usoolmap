@@ -15,7 +15,7 @@ routing and positioning work wherever the underlying data exists.
 | Build Missing 3D Buildings | For the area on screen, reads real OSM outlines and extrudes them only when a height, floor count or low-rise type is mapped. Estimated shapes are a different colour with a legend; outlines with no height clue stay flat. | `map/Buildings3D.kt` |
 | Map appearance | Day and night palettes in Usool gold, black and white (`assets/map_themes.json`), switching automatically with the phone's dark mode or after sunset; 3D buildings shaded by height; place names in one language (phone language, Arabic, English or local). | `map/MapTheme.kt`, `map/MapController.kt` |
 | Satellite view | Top-down imagery under the map labels, zoomable to level 21, with nearby tiles fetched ahead and a 512 MB on-phone tile cache for speed. Free Sentinel-2 (about 10 m per pixel) by default; 30 cm-class imagery when a MapTiler key or a licensed tile URL is configured. The map states the real detail of what is on screen. | `imagery/Satellite.kt`, `map/MapController.kt` |
-| Street view | Real street-level photos from Panoramax (no key) and Mapillary (free token). Green lines mark covered streets; tap to open the nearest photo, step along the street, pinch to zoom, drag 360° photos around. Preview loads first, then full detail; photos are cached. | `imagery/StreetView.kt`, `ui/StreetViewScreen.kt` |
+| Street view | Real street-level photos from Mapillary (free token) and Panoramax (no key). 360° photos are rendered as a true sphere (OpenGL) and turned in any direction with a finger; arrows step to neighbouring photos without leaving the viewer; the map stays visible below with a camera marker and view cone at the photo's recorded position, and tapping the map moves the camera. Coordinates of each photo are shown and can be copied. | `imagery/StreetView.kt`, `ui/StreetViewScreen.kt`, `ui/PanoView.kt` |
 | Search | Worldwide place and address search (Nominatim), multilingual names, plus coordinates in decimal, DMS and `geo:` form resolved on the device. | `search/`, `core/CoordinateParser.kt` |
 | Nearby search in your language | Type or speak a kind of place in your own language ("مطعم حلال", "فندق", "pharmacy"): it is searched by category inside the area on the map, using the local term where it matters (halal is 清真 in Chinese). Results show the name as written locally, a translation, and the address in your language. Optional on-device translation (ML Kit). | `search/PoiConcepts.kt`, `search/Search.kt`, `search/MlKitTranslator.kt` |
 | Routing | Drive, walk, cycle, motorcycle, truck (Valhalla); bus, metro, rail, public transport (Transitous). Only modes that can be routed right now are shown. | `routing/OnlineRouting.kt` |
@@ -38,7 +38,8 @@ routing and positioning work wherever the underlying data exists.
   a key, imagery is Sentinel-2 at about 10 m per pixel. No imagery is AI-generated or sharpened.
 - **Street view** shows photos other people have uploaded. Many streets, especially outside
   Europe and North America, have none; the app then says so. It is not Google Street View, whose
-  licence does not allow use on a non-Google map. 360° photos are shown as a flat strip.
+  licence does not allow use on a non-Google map. Only photos taken with a 360° camera can be
+  turned all the way round; ordinary photos can only be zoomed and panned.
 - **China.** Positions are true WGS-84, matching OpenStreetMap and the app's tiles, so there is no
   GCJ-02 shift on the map; coordinates copied from Chinese map apps can be entered as
   `gcj:lat,lon`. BeiDou is used whenever the phone's receiver tracks it. OpenStreetMap has far
@@ -72,7 +73,7 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 77 unit tests
+./gradlew testDebugUnitTest                    # 88 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```

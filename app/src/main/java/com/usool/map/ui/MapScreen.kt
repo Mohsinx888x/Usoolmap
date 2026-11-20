@@ -86,7 +86,7 @@ import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 
 @Composable
-fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues) {
+fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues, streetViewOpen: Boolean = false) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val gnss by vm.gnss.collectAsStateWithLifecycle()
     val nav by vm.navigation.collectAsStateWithLifecycle()
@@ -140,7 +140,7 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
                 map.addOnMapLongClickListener { p -> vm.selectPoint(GeoPoint(p.latitude, p.longitude)); true }
                 map.addOnMapClickListener { p ->
                     // In street-view mode a tap opens the nearest photo.
-                    if (vm.ui.value.streetMode && !vm.navigation.value.active) { vm.openStreetView(GeoPoint(p.latitude, p.longitude)); true } else false
+                    if ((vm.ui.value.streetMode || vm.ui.value.streetImage != null) && !vm.navigation.value.active) { vm.openStreetView(GeoPoint(p.latitude, p.longitude)); true } else false
                 }
                 mapRef = map
             }
@@ -192,6 +192,15 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
     LaunchedEffect(c, ui.is3D) { c?.set3D(ui.is3D) }
     LaunchedEffect(c, ui.satellite) { c?.setSatellite(ui.satellite) }
     LaunchedEffect(c, ui.streetMode, nav.active) { c?.setStreetCoverage(ui.streetMode && !nav.active) }
+    // While the street viewer covers the top of the screen, the map below it shows the camera:
+    // where the photo was taken and which way the view is facing.
+    val screenHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp.roundToPx() }
+    LaunchedEffect(c, streetViewOpen) { c?.setTopInset(if (streetViewOpen) (screenHeightPx * STREET_VIEW_FRACTION).toInt() else 0) }
+    LaunchedEffect(c, ui.streetImage, ui.streetBearing, streetViewOpen) {
+        c ?: return@LaunchedEffect
+        c.setStreetCamera(if (streetViewOpen) ui.streetImage?.point else null, ui.streetBearing.toDouble())
+    }
+    LaunchedEffect(c, ui.streetImage?.id) { ui.streetImage?.let { c?.moveTo(it.point, maxOf(c.zoom, 17.5)) } }
     LaunchedEffect(c, ui.builtGeoJson) { c?.setBuiltBuildings(ui.builtGeoJson) }
     LaunchedEffect(c, nav.incidents, nav.cameras) { c?.setRoadInfo(nav.incidents, nav.cameras) }
     LaunchedEffect(c, ui.destination) {
@@ -215,7 +224,7 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
 
     Box(Modifier.fillMaxSize().alpha(if (visible) 1f else 0f)) {
         AndroidView(factory = { mapView }, modifier = Modifier.fillMaxSize())
-        if (!visible) return@Box
+        if (!visible || streetViewOpen) return@Box
 
         Column(Modifier.fillMaxSize().padding(contentPadding).padding(12.dp)) {
             if (nav.active) {
@@ -471,6 +480,9 @@ private fun NavigationPanel(nav: NavigationState, region: RegionProfile, speedMp
         }
     }
 }
+
+/** Share of the screen height taken by the street viewer; the map stays visible below it. */
+const val STREET_VIEW_FRACTION = 0.62f
 
 fun formatDuration(seconds: Double): String {
     val minutes = Math.round(seconds / 60.0).coerceAtLeast(1)

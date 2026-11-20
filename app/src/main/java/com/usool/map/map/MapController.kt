@@ -66,6 +66,7 @@ class MapController(
     private val destinationSource = GeoJsonSource(SRC_DESTINATION, EMPTY)
     private val buildingsSource = GeoJsonSource(SRC_BUILDINGS, EMPTY)
     private val roadInfoSource = GeoJsonSource(SRC_ROAD_INFO, EMPTY)
+    private val streetCameraSource = GeoJsonSource(SRC_STREET_CAMERA, EMPTY)
 
     var is3D = false
         private set
@@ -196,6 +197,19 @@ class MapController(
             ),
         )
 
+        // Street-view camera: where the photo on screen was taken and which way the view faces.
+        style.addSource(streetCameraSource)
+        style.addLayer(
+            FillLayer(LAYER_STREET_CAMERA_CONE, SRC_STREET_CAMERA).withProperties(PropertyFactory.fillColor("#FEC502"), PropertyFactory.fillOpacity(0.45f))
+                .withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Polygon"))),
+        )
+        style.addLayer(
+            CircleLayer(LAYER_STREET_CAMERA, SRC_STREET_CAMERA).withProperties(
+                PropertyFactory.circleRadius(8f), PropertyFactory.circleColor("#111111"),
+                PropertyFactory.circleStrokeColor("#FEC502"), PropertyFactory.circleStrokeWidth(3f),
+            ).withFilter(Expression.eq(Expression.geometryType(), Expression.literal("Point"))),
+        )
+
         style.addSource(positionSource)
         style.addLayer(
             CircleLayer(LAYER_POSITION_HALO, SRC_POSITION).withProperties(
@@ -286,6 +300,32 @@ class MapController(
         style.getLayer(LAYER_SATELLITE)?.setProperties(PropertyFactory.visibility(if (enabled) Property.VISIBLE else Property.NONE))
     }
 
+    /** Draws the street-view camera at [p] with a cone towards [bearingDeg]; null removes it. */
+    fun setStreetCamera(p: GeoPoint?, bearingDeg: Double) {
+        if (p == null) { streetCameraSource.setGeoJson(EMPTY); return }
+        val ring = JsonArray()
+        ring.add(JsonArray().apply { add(p.lon); add(p.lat) })
+        var a = -35.0
+        while (a <= 35.0) {
+            val q = com.usool.map.core.Geo.destination(p, bearingDeg + a, 28.0)
+            ring.add(JsonArray().apply { add(q.lon); add(q.lat) })
+            a += 7.0
+        }
+        ring.add(JsonArray().apply { add(p.lon); add(p.lat) })
+        val cone = JsonObject().apply {
+            addProperty("type", "Feature")
+            add("geometry", JsonObject().apply { addProperty("type", "Polygon"); add("coordinates", JsonArray().apply { add(ring) }) })
+            add("properties", JsonObject())
+        }
+        val features = JsonArray().apply { add(cone); add(pointFeatureObject(p, JsonObject())) }
+        streetCameraSource.setGeoJson(JsonObject().apply { addProperty("type", "FeatureCollection"); add("features", features) }.toString())
+    }
+
+    /** Keeps the map's centre inside the part of the screen that is not covered ([topPx] from the top). */
+    fun setTopInset(topPx: Int) {
+        map.setPadding(0, topPx, 0, 0)
+    }
+
     /** Shows or hides the lines marking streets that have street-level photos. */
     fun setStreetCoverage(enabled: Boolean) {
         val v = if (enabled) Property.VISIBLE else Property.NONE
@@ -350,6 +390,9 @@ class MapController(
         private const val SRC_BUILDINGS = "usool-buildings"
         private const val SRC_ROAD_INFO = "usool-road-info"
         private const val SRC_TERRAIN = "usool-terrain"
+        private const val SRC_STREET_CAMERA = "usool-street-camera"
+        private const val LAYER_STREET_CAMERA = "usool-street-camera-dot"
+        private const val LAYER_STREET_CAMERA_CONE = "usool-street-camera-cone"
         private const val SRC_SATELLITE = "usool-satellite"
         private const val SRC_STREET_COVERAGE = "usool-street-coverage"
         private const val LAYER_SATELLITE = "usool-satellite-raster"
