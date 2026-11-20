@@ -19,10 +19,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +46,8 @@ import com.usool.map.map.OfflineRegions
 import com.usool.map.map.RoadDataState
 import com.usool.map.voice.VoiceLanguages
 import com.usool.map.voice.VoiceMode
+import com.usool.map.voice.humour.PackStatus
+import kotlin.math.roundToInt
 import java.util.Locale
 
 @Composable
@@ -107,7 +111,7 @@ fun OfflineScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 StatusRow("Professional voice guidance", true, "Uses the phone's built-in speech engine and voices.")
                 StatusRow("Map display", regions.any { it.mapComplete }, "Inside downloaded regions, in 2D and 3D.")
                 StatusRow("Route calculation", regions.any { it.roadData == RoadDataState.READY }, "Drive, motorcycle, walk and cycle inside regions that include road data.")
-                StatusRow("Humorous voice", vm.container.voice.cache.clipCount > 0, "Only lines already saved on this phone (${vm.container.voice.cache.clipCount} saved).")
+                StatusRow("Funny voice", vm.container.humour.library.count > 0, "Jokes already saved on this phone play offline (${vm.container.humour.library.count} saved). New ones need internet.")
                 StatusRow("Coordinate search", true, "Typing coordinates works anywhere.")
             }
             Section("What needs internet") {
@@ -161,40 +165,125 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
             Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
             Section("Voice guidance") {
+                val humour by vm.container.humour.state.collectAsStateWithLifecycle()
+                LaunchedEffect(Unit) { vm.container.humour.refreshVoices() }
+                LaunchedEffect(humour.message) { humour.message?.let { vm.showMessage(it); vm.container.humour.clearMessage() } }
+
                 VoiceMode.entries.forEach { mode ->
-                    val enabled = mode != VoiceMode.HUMOROUS || voice.humourConfigured
-                    Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { vm.setVoiceMode(mode) }, verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = ui.voiceMode == mode, onClick = { vm.setVoiceMode(mode) }, enabled = enabled)
-                        Text(mode.label)
+                    Row(Modifier.fillMaxWidth().clickable { vm.setVoiceMode(mode) }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = ui.voiceMode == mode, onClick = { vm.setVoiceMode(mode) })
+                        Column {
+                            Text(mode.label)
+                            Text(mode.description, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
-                Text(
-                    if (voice.humourConfigured.also { ui.voiceVersion }) "Fun lines are written and spoken by Grok (xAI), then saved on the phone. Arabic lines use Gulf dialect with full vowel marks so they are pronounced correctly. If a line is not ready, the professional voice speaks instead."
-                    else "The fun voice needs an xAI (Grok) API key from console.x.ai. Paste it below. The professional voice works without it.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                var grokKey by remember { mutableStateOf(vm.container.settings.grokKey) }
-                OutlinedTextField(value = grokKey, onValueChange = { grokKey = it }, label = { Text("xAI (Grok) API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.saveGrokKey(grokKey) }) { Text("Save key") }
-                    var voiceOpen by remember { mutableStateOf(false) }
-                    OutlinedButton(onClick = { voiceOpen = true }) { Text("Grok voice: ${ui.grokVoice}") }
-                    DropdownMenu(expanded = voiceOpen, onDismissRequest = { voiceOpen = false }) {
-                        com.usool.map.voice.GrokVoiceClient.VOICES.forEach { v -> DropdownMenuItem(text = { Text(v) }, onClick = { vm.setGrokVoice(v); voiceOpen = false }) }
-                    }
-                }
+
                 var open by remember { mutableStateOf(false) }
                 val current = VoiceLanguages.forTag(ui.voiceLanguage)
-                OutlinedButton(onClick = { open = true }) { Text("Language: ${current.label}") }
+                OutlinedButton(onClick = { open = true }) { Text("Language and dialect: ${current.label}") }
                 DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                     VoiceLanguages.all.forEach { lang ->
                         DropdownMenuItem(text = { Text(lang.label) }, onClick = { vm.setVoiceLanguage(lang); open = false })
                     }
                 }
                 if (!voice.professionalVoiceAvailable) {
-                    Text("This phone has no speech voice installed for ${current.label}; English is used until one is installed in Android's text-to-speech settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    Text("This phone has no speech voice installed for ${current.label}; English is used for guidance until one is installed in Android's text-to-speech settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
-                Text(String.format(Locale.US, "Saved humorous clips: %d (%.1f MB)", voice.cache.clipCount, voice.cache.sizeBytes / 1_048_576.0), style = MaterialTheme.typography.bodySmall)
+            }
+
+            Section("Funny voice") {
+                val humour by vm.container.humour.state.collectAsStateWithLifecycle()
+                val source = humour.source.also { ui.voiceVersion }
+                Text(
+                    when (source) {
+                        "cloud" -> "Jokes come from the UsoolMap cloud voice library (written by Grok, spoken by Azure Speech) and are saved on this phone."
+                        "device" -> "No cloud voice service is set up, so jokes are written and spoken by Grok directly from this phone with your xAI key."
+                        else -> "Not set up yet. Enter the cloud voice service address, or an xAI key, at the bottom of this section. Guidance works without it."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text("Jokes react to what happens on the drive and never replace an instruction. They are not played near a junction, and are cut off if guidance needs to speak.", style = MaterialTheme.typography.bodySmall)
+
+                // Voice personality
+                var personalityOpen by remember { mutableStateOf(false) }
+                val chosen = if (source == "device") ui.grokVoice else ui.personality
+                val chosenLabel = humour.personalities.firstOrNull { it.id == chosen }?.label ?: chosen.ifBlank { "default" }
+                OutlinedButton(onClick = { personalityOpen = true }, enabled = humour.personalities.isNotEmpty()) { Text("Voice personality: $chosenLabel") }
+                DropdownMenu(expanded = personalityOpen, onDismissRequest = { personalityOpen = false }) {
+                    humour.personalities.forEach { p ->
+                        DropdownMenuItem(
+                            text = { Column { Text(p.label); p.description?.let { Text(it, style = MaterialTheme.typography.bodySmall) } } },
+                            onClick = { if (source == "device") vm.setGrokVoice(p.id) else vm.setPersonality(p.id); personalityOpen = false },
+                        )
+                    }
+                }
+                humour.fallbackNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+
+                Text("Humour intensity: ${listOf("gentle", "playful", "cheeky")[ui.humourIntensity - 1]}", style = MaterialTheme.typography.bodyMedium)
+                Slider(value = ui.humourIntensity.toFloat(), onValueChange = { vm.setHumourIntensity(it.roundToInt()) }, valueRange = 1f..3f, steps = 1)
+                Text("Joke frequency: ${listOf("rare", "normal", "frequent")[ui.jokeFrequency - 1]}", style = MaterialTheme.typography.bodyMedium)
+                Slider(value = ui.jokeFrequency.toFloat(), onValueChange = { vm.setJokeFrequency(it.roundToInt()) }, valueRange = 1f..3f, steps = 1)
+
+                // Voice pack
+                Text(String.format(Locale.US, "On this phone: %d jokes, %.1f MB", humour.clipCount, humour.cacheBytes / 1_048_576.0), fontWeight = FontWeight.Medium)
+                when (humour.packStatus) {
+                    PackStatus.DOWNLOADING, PackStatus.PAUSED, PackStatus.FAILED -> {
+                        val fraction = when {
+                            humour.packBytesTotal > 0 -> humour.packBytesDone.toFloat() / humour.packBytesTotal
+                            humour.packFilesTotal > 0 -> humour.packFilesDone.toFloat() / humour.packFilesTotal
+                            else -> 0f
+                        }
+                        LinearProgressIndicator(progress = { fraction.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                        val size = if (humour.packBytesTotal > 0) String.format(Locale.US, " · %.1f of %.1f MB", humour.packBytesDone / 1_048_576.0, humour.packBytesTotal / 1_048_576.0) else ""
+                        Text("${humour.packFilesDone} of ${humour.packFilesTotal} files$size" + when (humour.packStatus) { PackStatus.PAUSED -> " · paused"; PackStatus.FAILED -> " · stopped"; else -> "" }, style = MaterialTheme.typography.bodySmall)
+                    }
+                    PackStatus.DONE -> Text("Voice pack downloaded: ${humour.packFilesDone} of ${humour.packFilesTotal} files.", style = MaterialTheme.typography.bodySmall)
+                    PackStatus.IDLE -> Unit
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when (humour.packStatus) {
+                        PackStatus.DOWNLOADING -> OutlinedButton(onClick = { vm.container.humour.pausePack() }) { Text("Pause") }
+                        PackStatus.PAUSED -> Button(onClick = { vm.container.humour.downloadPack() }) { Text("Resume") }
+                        PackStatus.FAILED -> Button(onClick = { vm.container.humour.downloadPack() }) { Text("Retry") }
+                        else -> Button(onClick = { vm.container.humour.downloadPack() }, enabled = source != "none") { Text(if (source == "device") "Generate voice pack" else "Download voice pack") }
+                    }
+                    OutlinedButton(onClick = { vm.container.humour.generateNew() }, enabled = source != "none") { Text("Generate new jokes") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val paused = ui.jokesPausedUntil > System.currentTimeMillis()
+                    OutlinedButton(onClick = { vm.pauseJokes(if (paused) 0 else 30) }) { Text(if (paused) "Resume jokes" else "Pause jokes 30 min") }
+                    OutlinedButton(onClick = { vm.container.humour.clearCache() }) { Text("Clear audio cache") }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Offline audio only")
+                        Text("Play only jokes already on this phone and make no requests.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = ui.humourOfflineOnly, onCheckedChange = vm::setHumourOfflineOnly)
+                }
+
+                // Pronunciation report for the joke just heard
+                humour.lastJoke?.let { last ->
+                    Text("Last joke played:", fontWeight = FontWeight.Medium)
+                    Text(last.text, style = MaterialTheme.typography.bodyMedium)
+                    if (last.fallbackVoice) Text("Spoken with a fallback voice: the chosen dialect has no voice of its own.", style = MaterialTheme.typography.bodySmall)
+                    var note by remember(last.id) { mutableStateOf("") }
+                    OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text("What was pronounced wrongly?") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedButton(onClick = { vm.container.humour.reportPronunciation(note); note = "" }, enabled = note.isNotBlank()) { Text("Report incorrect pronunciation") }
+                }
+
+                // Where the jokes come from
+                Text("Cloud voice service", fontWeight = FontWeight.Medium)
+                var backendUrl by remember { mutableStateOf(vm.container.settings.backendUrl) }
+                var backendKey by remember { mutableStateOf(vm.container.settings.backendAppKey) }
+                OutlinedTextField(value = backendUrl, onValueChange = { backendUrl = it }, label = { Text("Service address (https://…)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = backendKey, onValueChange = { backendKey = it }, label = { Text("App key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveVoiceBackend(backendUrl, backendKey) }) { Text("Save service") }
+                Text("Without a cloud service: xAI key for jokes made on this phone", fontWeight = FontWeight.Medium)
+                var grokKey by remember { mutableStateOf(vm.container.settings.grokKey) }
+                OutlinedTextField(value = grokKey, onValueChange = { grokKey = it }, label = { Text("xAI (Grok) API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Button(onClick = { vm.saveGrokKey(grokKey) }) { Text("Save key") }
             }
 
             Section("Search and translation") {

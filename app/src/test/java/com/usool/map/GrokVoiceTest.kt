@@ -4,14 +4,11 @@ import com.google.gson.JsonParser
 import com.usool.map.voice.ArabicText
 import com.usool.map.voice.GrokJokeClient
 import com.usool.map.voice.GrokVoiceClient
-import com.usool.map.voice.VoiceCache
 import com.usool.map.voice.VoiceLanguages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.nio.file.Files
 
 class GrokVoiceTest {
     @Test fun gulfArabicUsesTheGulfSpeechSetting() {
@@ -50,17 +47,22 @@ class GrokVoiceTest {
         assertFalse(ArabicText.isArabic("Turn right"))
     }
 
-    @Test fun asksForGulfDialectWithTashkeelOnlyWhereItApplies() {
-        val qatar = GrokJokeClient.systemPrompt(VoiceLanguages.forTag("ar-QA"), strict = false)
+    @Test fun asksForAnOriginalReactionInTheRightDialect() {
+        val qatar = GrokJokeClient.reactionPrompt(VoiceLanguages.forTag("ar-QA"), 2, emptyList(), strict = false)
         assertTrue(qatar.contains("Khaleeji"))
         assertTrue(qatar.contains("full tashkeel"))
         assertFalse(qatar.contains("previous answer"))
-        assertTrue(GrokJokeClient.systemPrompt(VoiceLanguages.forTag("ar-QA"), strict = true).contains("previous answer was missing tashkeel"))
-        val egypt = GrokJokeClient.systemPrompt(VoiceLanguages.forTag("ar-EG"), strict = false)
+        // The joke must not carry the instruction: the navigation voice says that.
+        assertTrue(qatar.contains("Do NOT give directions"))
+        assertTrue(qatar.contains("not a translation of an English joke"))
+        assertTrue(GrokJokeClient.reactionPrompt(VoiceLanguages.forTag("ar-QA"), 2, emptyList(), strict = true).contains("previous answer was missing tashkeel"))
+        val egypt = GrokJokeClient.reactionPrompt(VoiceLanguages.forTag("ar-EG"), 2, emptyList(), strict = false)
         assertFalse(egypt.contains("Khaleeji"))
         assertTrue(egypt.contains("full tashkeel"))
-        val english = GrokJokeClient.systemPrompt(VoiceLanguages.forTag("en-US"), strict = false)
+        val english = GrokJokeClient.reactionPrompt(VoiceLanguages.forTag("en-US"), 3, listOf("Old joke one", "Old joke two"), strict = false)
         assertFalse(english.contains("tashkeel"))
+        assertTrue(english.contains("cheeky"))
+        assertTrue(english.contains("Old joke one | Old joke two"))
     }
 
     @Test fun acceptsVowelledArabicRepliesDespiteTheirLength() {
@@ -69,13 +71,5 @@ class GrokVoiceTest {
             add("choices", com.google.gson.JsonArray().apply { add(com.google.gson.JsonObject().apply { add("message", com.google.gson.JsonObject().apply { addProperty("content", line) }) }) })
         }.toString()
         assertEquals(line, GrokJokeClient.parseReply(json))
-    }
-
-    @Test fun changingTheVoiceDoesNotReplayOldClips() {
-        val cache = VoiceCache(Files.createTempDirectory("v").toFile())
-        val ar = VoiceLanguages.forTag("ar-QA")
-        assertNotEquals(cache.key("x", ar, "grok:leo"), cache.key("x", ar, "grok:ara"))
-        assertNotEquals(cache.key("x", ar, "grok:leo"), cache.key("x", ar))
-        assertEquals(cache.key("x", ar, "grok:leo"), cache.key("x", ar, "grok:leo"))
     }
 }

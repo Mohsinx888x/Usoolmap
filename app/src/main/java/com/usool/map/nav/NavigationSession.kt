@@ -19,9 +19,13 @@ data class NavigationProgress(
     val offRoute: Boolean,
     val arrived: Boolean,
     val positionEstimated: Boolean,
+    /** Index of [nextManeuver] in the route; rises each time a manoeuvre is completed. */
+    val maneuverIndex: Int = 0,
+    /** Distance from the next manoeuvre to the one after it; small when junctions follow closely. */
+    val gapAfterNextM: Double? = null,
 )
 
-data class Announcement(val text: String, /** Plain instruction a humorous clip may exist for. */ val jokeKey: String?)
+data class Announcement(val text: String, val priority: com.usool.map.voice.humour.AudioPriority = com.usool.map.voice.humour.AudioPriority.INSTRUCTION)
 
 /**
  * Follows one route: matches each position to the route line, works out the next manoeuvre and
@@ -46,7 +50,7 @@ class NavigationSession(val route: Route, private val region: RegionProfile, lan
         val says = ArrayList<Announcement>()
         if (!departed) {
             departed = true
-            route.maneuvers.firstOrNull()?.let { says += Announcement(it.spoken, it.spoken) }
+            route.maneuvers.firstOrNull()?.let { says += Announcement(it.spoken) }
         }
 
         // Off-route only counts for real satellite fixes that are accurate enough to judge.
@@ -54,7 +58,7 @@ class NavigationSession(val route: Route, private val region: RegionProfile, lan
         val off = !fix.estimated && match.distanceFromRouteM > tolerance
         offRouteCount = if (off) offRouteCount + 1 else 0
         val needsReroute = offRouteCount == OFF_ROUTE_FIXES && !route.mode.isTransit
-        if (needsReroute) says += Announcement(text.offRoute, null)
+        if (needsReroute) says += Announcement(text.offRoute, com.usool.map.voice.humour.AudioPriority.INFO)
 
         // Advance past manoeuvres already behind the matched position.
         while (nextIndex < route.maneuvers.size - 1 && matcher.alongAtIndex(route.maneuvers[nextIndex].shapeIndex) < match.alongM - 5) nextIndex++
@@ -67,16 +71,16 @@ class NavigationSession(val route: Route, private val region: RegionProfile, lan
             if (next.type == ManeuverType.ARRIVE) {
                 if (distToNext < ARRIVE_M && !arrived) {
                     arrived = true
-                    says += Announcement(next.spoken, next.spoken)
+                    says += Announcement(next.spoken)
                 }
             } else {
                 // Far warning ~20 s ahead (at least 250 m), near warning ~5 s ahead (at least 35 m).
                 val far = (speed * 20).coerceIn(250.0, 1500.0)
                 val near = (speed * 5).coerceIn(35.0, 120.0)
                 if (distToNext <= near) {
-                    if (announced.add(nextIndex to STAGE_NEAR)) { announced += nextIndex to STAGE_FAR; says += Announcement(text.now(next.spoken), next.spoken) }
+                    if (announced.add(nextIndex to STAGE_NEAR)) { announced += nextIndex to STAGE_FAR; says += Announcement(text.now(next.spoken)) }
                 } else if (distToNext <= far && distToNext > near * 2) {
-                    if (announced.add(nextIndex to STAGE_FAR)) says += Announcement(text.inDistance(region.formatDistance(distToNext), next.spoken), null)
+                    if (announced.add(nextIndex to STAGE_FAR)) says += Announcement(text.inDistance(region.formatDistance(distToNext), next.spoken))
                 }
             }
         }
@@ -92,12 +96,11 @@ class NavigationSession(val route: Route, private val region: RegionProfile, lan
             offRoute = off,
             arrived = arrived,
             positionEstimated = fix.estimated,
+            maneuverIndex = nextIndex,
+            gapAfterNextM = route.maneuvers.getOrNull(nextIndex + 1)?.let { after -> next?.let { matcher.alongAtIndex(after.shapeIndex) - matcher.alongAtIndex(it.shapeIndex) } },
         )
         return Update(progress, says, needsReroute)
     }
-
-    /** Plain instructions worth preparing humorous clips for. */
-    fun speakableInstructions(): List<String> = route.maneuvers.map { it.spoken }
 
     companion object {
         private const val OFF_ROUTE_M = 45.0

@@ -6,3 +6,8 @@ local.properties
 .kotlin/
 *.jks
 *.keystore
+
+# Backend
+backend/node_modules/
+backend/.env
+backend/qa-out/

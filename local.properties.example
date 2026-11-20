@@ -3,8 +3,6 @@
 sdk.dir=/path/to/Android/sdk
 GROK_API_KEY=
 GROK_MODEL=latest
-AZURE_SPEECH_KEY=
-AZURE_SPEECH_REGION=qatarcentral
 TOMTOM_API_KEY=
 # Optional raster-DEM tile URL (terrarium encoding) from a terrain provider you are licensed to use.
 TERRAIN_TILES_URL=
@@ -18,3 +16,7 @@ SATELLITE_TILES_URL=
 SATELLITE_NAME=
 SATELLITE_ATTRIBUTION=
 SATELLITE_MAX_ZOOM=19
+
+# Cloud voice service (see backend/ and infra/). Leave blank to generate jokes on the phone with an xAI key instead.
+VOICE_BACKEND_URL=
+VOICE_BACKEND_APP_KEY=

@@ -17,6 +17,13 @@ import com.usool.map.traffic.RoadIncident
 import com.usool.map.traffic.RoadService
 import com.usool.map.traffic.SpeedCamera
 import com.usool.map.voice.VoiceGuide
+import com.usool.map.voice.humour.AudioPriority
+import com.usool.map.voice.humour.DriveFacts
+import com.usool.map.voice.humour.HumourMode
+import com.usool.map.voice.humour.HumourPolicy
+import com.usool.map.voice.humour.HumourSettings
+import com.usool.map.voice.humour.NavEvent
+import com.usool.map.voice.humour.NavEventDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +56,7 @@ class Navigator(
     private val routing: RoutingRepository,
     private val roadData: RoadDataRegistry,
     private val voice: VoiceGuide,
+    private val humour: com.usool.map.voice.humour.HumourEngine,
     private val region: () -> RegionProfile,
     private val cameraAlertsEnabled: () -> Boolean,
 ) {
@@ -60,6 +68,8 @@ class Navigator(
     private var lastFixState: FixState? = null
     private val alertedCameras = HashSet<GeoPoint>()
     private var lastSpeedLimitAt: GeoPoint? = null
+    /** Set when a new route has just replaced the old one, so the humour engine can react once. */
+    @Volatile private var rerouted = false
 
     fun start(route: Route, destination: GeoPoint) {
         stopInternal()
@@ -67,7 +77,9 @@ class Navigator(
         session = NavigationSession(route, region(), lang)
         _state.value = NavigationState(active = true, route = route, destination = destination)
         voice.start()
-        voice.prepare(session!!.speakableInstructions())
+        humour.prepareForRoute()
+        val detector = NavEventDetector()
+        var announcedStart = false
         gnss.start(navigating = true)
         ContextCompat.startForegroundService(context, Intent(context, NavigationService::class.java))
         refreshRoadInfo()
@@ -76,8 +88,9 @@ class Navigator(
                 val text = InstructionText.forLanguage(voice.language.tag)
                 // Tell the driver once when the satellite signal goes and once when it returns.
                 val previous = lastFixState
-                if (previous == FixState.FIXED && (snap.state == FixState.DEAD_RECKONING || snap.state == FixState.LOST)) voice.speak(text.signalLost)
-                if ((previous == FixState.DEAD_RECKONING || previous == FixState.LOST) && snap.state == FixState.FIXED) voice.speak(text.signalBack)
+                val events = ArrayList<NavEvent>()
+                if (previous == FixState.FIXED && (snap.state == FixState.DEAD_RECKONING || snap.state == FixState.LOST)) { voice.speak(text.signalLost, AudioPriority.SAFETY); events += NavEvent.SIGNAL_LOST }
+                if ((previous == FixState.DEAD_RECKONING || previous == FixState.LOST) && snap.state == FixState.FIXED) { voice.speak(text.signalBack, AudioPriority.INFO); events += NavEvent.SIGNAL_BACK }
                 lastFixState = snap.state
 
                 val fix = snap.fix ?: return@collect
@@ -85,9 +98,25 @@ class Navigator(
                 val current = session ?: return@collect
                 val update = current.update(fix)
                 _state.update { it.copy(progress = update.progress) }
-                update.announcements.forEach { voice.speak(it.text, it.jokeKey) }
+                update.announcements.forEach { voice.speak(it.text, it.priority) }
                 if (update.needsReroute) reroute(fix.point, destination, route)
-                checkCameras(fix.point)
+                if (checkCameras(fix.point)) events += NavEvent.SPEED_CAMERA
+
+                // Humour: work out what just happened, then let the engine decide whether a joke is safe now.
+                val p = update.progress
+                val facts = DriveFacts(
+                    nowMs = System.currentTimeMillis(), speedMps = (fix.speedMps ?: 0f).toDouble(),
+                    distanceToManeuverM = if (p.nextManeuver == null) Double.MAX_VALUE else p.distanceToManeuverM,
+                    nextManeuver = p.nextManeuver?.type, maneuverIndex = p.maneuverIndex, gapAfterNextM = p.gapAfterNextM,
+                    offRoute = p.offRoute, speedLimitKmh = _state.value.speedLimitKmh, localHour = java.time.LocalTime.now().hour,
+                )
+                // A joke in progress is cut off as soon as a manoeuvre comes close.
+                if (!HumourPolicy.decide(NavEvent.LONG_STRAIGHT, facts, HumourSettings(HumourMode.FUNNY, frequency = 3), null).allow) humour.hush()
+                if (!announcedStart) { announcedStart = true; events += NavEvent.ROUTE_START }
+                if (rerouted) { rerouted = false; events += NavEvent.REROUTE }
+                if (p.arrived) events += NavEvent.ARRIVAL
+                events += detector.update(facts)
+                events.forEach { humour.onEvent(it, facts) }
                 maybeLoadSpeedLimit(fix.point)
                 if (update.progress.arrived) {
                     _state.update { it.copy(message = "You have arrived.") }
@@ -108,6 +137,7 @@ class Navigator(
 
     private fun stopInternal() {
         job?.cancel(); job = null
+        humour.syncHistory()
         session = null
         lastFixState = null
         alertedCameras.clear()
@@ -122,7 +152,7 @@ class Navigator(
                 val lang = voice.language.tag
                 val fresh = routing.route(from, destination, old.mode, lang)
                 session = NavigationSession(fresh, region(), lang)
-                voice.prepare(session!!.speakableInstructions())
+                rerouted = true
                 _state.update { it.copy(route = fresh, rerouting = false) }
             } catch (e: Exception) {
                 // Keep guiding along the old route; the next off-route detection tries again.
@@ -148,13 +178,15 @@ class Navigator(
         }
     }
 
-    private fun checkCameras(p: GeoPoint) {
+    /** Announces a camera coming up. Returns true when one was announced. */
+    private fun checkCameras(p: GeoPoint): Boolean {
         val cameras = _state.value.cameras
-        if (cameras.isEmpty() || !region().speedCameraAlertsAllowed) return
-        val near = cameras.firstOrNull { it.point !in alertedCameras && Geo.distanceM(p, it.point) < 500 } ?: return
+        if (cameras.isEmpty() || !region().speedCameraAlertsAllowed) return false
+        val near = cameras.firstOrNull { it.point !in alertedCameras && Geo.distanceM(p, it.point) < 500 } ?: return false
         alertedCameras += near.point
         val text = InstructionText.forLanguage(voice.language.tag)
-        voice.speak(text.speedCamera(region().formatDistance(Geo.distanceM(p, near.point))))
+        voice.speak(text.speedCamera(region().formatDistance(Geo.distanceM(p, near.point))), AudioPriority.SAFETY)
+        return true
     }
 
     private fun maybeLoadSpeedLimit(p: GeoPoint) {

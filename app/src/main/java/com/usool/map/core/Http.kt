@@ -1,6 +1,7 @@
 package com.usool.map.core
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,6 +42,38 @@ class Http(
         headers: Map<String, String> = emptyMap(),
     ): ByteArray = execute(request(url, headers).post(body.toRequestBody(contentType.toMediaType())).build()) {
         it.readBytes()
+    }
+
+    /**
+     * Downloads [url] into [target], continuing from the bytes already in it. A server that does
+     * not honour the range is detected (status 200 instead of 206) and the file is restarted.
+     * [onBytes] receives the size on disk as it grows. Cancelling the coroutine keeps the partial
+     * file, which is what makes pause and resume work.
+     */
+    suspend fun downloadTo(url: String, target: java.io.File, headers: Map<String, String> = emptyMap(), onBytes: (Long) -> Unit = {}) = withContext(Dispatchers.IO) {
+        val have = if (target.isFile) target.length() else 0L
+        val builder = request(url, headers)
+        if (have > 0) builder.header("Range", "bytes=$have-")
+        client.newCall(builder.build()).execute().use { response ->
+            if (response.code == 416) return@use // already complete
+            if (!response.isSuccessful) throw HttpException(response.code, "HTTP ${response.code} from ${response.request.url.host}")
+            val append = response.code == 206
+            val body = response.body ?: throw IOException("Empty response")
+            java.io.FileOutputStream(target, append).use { out ->
+                var total = if (append) have else 0L
+                val buffer = ByteArray(16 * 1024)
+                body.byteStream().use { input ->
+                    while (true) {
+                        if (!isActive) throw kotlinx.coroutines.CancellationException("download paused")
+                        val n = input.read(buffer)
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                        total += n
+                        onBytes(total)
+                    }
+                }
+            }
+        }
     }
 
     private fun request(url: String, headers: Map<String, String>): Request.Builder {

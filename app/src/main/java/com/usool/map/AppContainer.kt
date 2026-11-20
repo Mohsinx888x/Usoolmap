@@ -25,9 +25,7 @@ import com.usool.map.search.SearchRepository
 import com.usool.map.traffic.OsmRoadDataProvider
 import com.usool.map.traffic.RoadDataRegistry
 import com.usool.map.traffic.TomTomTrafficProvider
-import com.usool.map.voice.AzureSpeechClient
 import com.usool.map.voice.GrokJokeClient
-import com.usool.map.voice.VoiceCache
 import com.usool.map.voice.VoiceGuide
 import com.usool.map.voice.VoiceLanguages
 import com.usool.map.voice.VoiceMode
@@ -82,11 +80,14 @@ class ConnectivityMonitor(context: Context, private val onRestored: () -> Unit) 
 }
 
 /** User preferences, persisted across launches. */
-class Settings(context: Context) {
+class Settings(context: Context) : com.usool.map.voice.humour.CloudCredentials, com.usool.map.voice.humour.HumourPreferences {
     private val prefs = context.getSharedPreferences("usoolmap", Context.MODE_PRIVATE)
 
     var voiceMode: VoiceMode
-        get() = runCatching { VoiceMode.valueOf(prefs.getString("voice_mode", null) ?: "") }.getOrDefault(VoiceMode.PROFESSIONAL)
+        get() = when (val stored = prefs.getString("voice_mode", null)) {
+            "HUMOROUS" -> VoiceMode.FUNNY // name used by earlier versions
+            else -> runCatching { VoiceMode.valueOf(stored ?: "") }.getOrDefault(VoiceMode.PROFESSIONAL)
+        }
         set(v) = prefs.edit().putString("voice_mode", v.name).apply()
 
     /** BCP-47 tag. Defaults to the device language so guidance matches the phone. */
@@ -119,6 +120,52 @@ class Settings(context: Context) {
     var searchLanguage: String
         get() = prefs.getString("search_language", null) ?: VoiceLanguages.forTag(Locale.getDefault().toLanguageTag()).tag
         set(v) = prefs.edit().putString("search_language", v).apply()
+
+    // --- Cloud voice service ---
+    /** Address of the UsoolMap voice backend on Azure; blank when none is set up. */
+    var backendUrl: String
+        get() = prefs.getString("backend_url", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.VOICE_BACKEND_URL
+        set(v) { prefs.edit().putString("backend_url", v.trim()).putString("device_token", "").apply() }
+    var backendAppKey: String
+        get() = prefs.getString("backend_app_key", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.VOICE_BACKEND_APP_KEY
+        set(v) { prefs.edit().putString("backend_app_key", v.trim()).putString("device_token", "").apply() }
+    override val baseUrl: String get() = backendUrl
+    override val appKey: String get() = backendAppKey
+    /** Random id created on first use; it identifies this installation to the backend, not the person. */
+    override val installId: String
+        get() = prefs.getString("install_id", null) ?: java.util.UUID.randomUUID().toString().also { prefs.edit().putString("install_id", it).apply() }
+    override var deviceToken: String
+        get() = prefs.getString("device_token", "") ?: ""
+        set(v) = prefs.edit().putString("device_token", v).apply()
+
+    // --- Humour choices ---
+    override val languageTag: String get() = voiceLanguage
+    override var personality: String
+        get() = prefs.getString("personality", "") ?: ""
+        set(v) = prefs.edit().putString("personality", v).apply()
+    override var intensity: Int
+        get() = prefs.getInt("humour_intensity", 2)
+        set(v) = prefs.edit().putInt("humour_intensity", v.coerceIn(1, 3)).apply()
+    override var frequency: Int
+        get() = prefs.getInt("humour_frequency", 2)
+        set(v) = prefs.edit().putInt("humour_frequency", v.coerceIn(1, 3)).apply()
+    override var pausedUntilWallMs: Long
+        get() = prefs.getLong("jokes_paused_until", 0)
+        set(v) = prefs.edit().putLong("jokes_paused_until", v).apply()
+    override var offlineOnly: Boolean
+        get() = prefs.getBoolean("humour_offline_only", false)
+        set(v) = prefs.edit().putBoolean("humour_offline_only", v).apply()
+    /** Days before a joke may be heard again. */
+    var nonRepeatDays: Int
+        get() = prefs.getInt("non_repeat_days", 90)
+        set(v) = prefs.edit().putInt("non_repeat_days", v.coerceIn(1, 365)).apply()
+    override val deviceGrokVoice: String get() = grokVoice
+    override var deviceGenerationsToday: Int
+        get() = prefs.getInt("device_generations", 0)
+        set(v) = prefs.edit().putInt("device_generations", v).apply()
+    override var deviceGenerationDay: String
+        get() = prefs.getString("device_generation_day", "") ?: ""
+        set(v) = prefs.edit().putString("device_generation_day", v).apply()
 
     /** xAI (Grok) API key for the humorous voice, kept on this phone. */
     var grokKey: String
@@ -208,20 +255,24 @@ class AppContainer(private val app: Application) {
         isOnline,
     )
 
-    val voice = VoiceGuide(
-        app, scope,
-        GrokJokeClient(http, { settings.grokKey.ifBlank { BuildConfig.GROK_API_KEY } }, BuildConfig.GROK_MODEL),
-        com.usool.map.voice.GrokVoiceClient(http) { settings.grokKey.ifBlank { BuildConfig.GROK_API_KEY } },
-        AzureSpeechClient(http, BuildConfig.AZURE_SPEECH_KEY, BuildConfig.AZURE_SPEECH_REGION),
-        { settings.grokVoice },
-        VoiceCache(File(app.filesDir, "voice-cache")),
-        isOnline,
-    ).also {
+    val voice = VoiceGuide(app).also {
         it.mode = settings.voiceMode
         it.language = VoiceLanguages.forTag(settings.voiceLanguage)
     }
 
-    val navigator = Navigator(app, scope, gnss, routing, roadData, voice, ::region) { settings.cameraAlerts }
+    private val xaiKey: () -> String = { settings.grokKey.ifBlank { BuildConfig.GROK_API_KEY } }
+
+    /** Humorous voice: Azure backend when its address is set, otherwise generated on the phone with an xAI key. */
+    val humour = com.usool.map.voice.humour.HumourEngine(
+        scope, voice,
+        com.usool.map.voice.humour.ClipLibrary(File(app.filesDir, "humour-clips"), nonRepeatDays = settings.nonRepeatDays),
+        com.usool.map.voice.humour.CloudVoiceClient(http, settings),
+        GrokJokeClient(http, xaiKey, BuildConfig.GROK_MODEL),
+        com.usool.map.voice.GrokVoiceClient(http, xaiKey),
+        settings, isOnline,
+    )
+
+    val navigator = Navigator(app, scope, gnss, routing, roadData, voice, humour, ::region) { settings.cameraAlerts }
 
     private val _country = MutableStateFlow(detectCountry())
     /** Country used for units, driving side and provider selection. Updated from search results. */
@@ -248,7 +299,7 @@ class AppContainer(private val app: Application) {
         // The callback arrives on a system thread, possibly while this object is still being
         // built, so the work is posted to the main thread.
         scope.launch(Dispatchers.Main) {
-            voice.syncPending()
+            humour.syncHistory()
             offlineRegions.resumeIncomplete()
             navigator.refreshRoadInfo()
         }

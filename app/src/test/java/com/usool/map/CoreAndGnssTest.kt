@@ -1,7 +1,6 @@
 package com.usool.map
 
 import com.usool.map.core.Availability
-import com.usool.map.core.BBox
 import com.usool.map.core.CoordinateParser
 import com.usool.map.core.DistanceUnit
 import com.usool.map.core.DrivingSide
@@ -23,17 +22,13 @@ import com.usool.map.traffic.OsmRoadDataProvider
 import com.usool.map.traffic.RoadDataProvider
 import com.usool.map.traffic.RoadDataRegistry
 import com.usool.map.traffic.RoadService
-import com.usool.map.voice.AzureSpeechClient
 import com.usool.map.voice.GrokJokeClient
-import com.usool.map.voice.VoiceCache
 import com.usool.map.voice.VoiceLanguages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.nio.file.Files
 import java.util.Locale
 
 class GeoTest {
@@ -278,15 +273,9 @@ class RoadDataRegistryTest {
 }
 
 class VoiceTest {
-    @Test fun ssmlEscapesText() {
-        val ssml = AzureSpeechClient.ssml("Turn <left> & \"go\"", VoiceLanguages.forTag("ar-QA"))
-        assertTrue(ssml.contains("xml:lang='ar-QA'"))
-        assertTrue(ssml.contains("ar-QA-MoazNeural"))
-        assertTrue(ssml.contains("Turn &lt;left&gt; &amp; &quot;go&quot;"))
-    }
-
     @Test fun languageFallsBackSensibly() {
-        assertEquals("ar-QA", VoiceLanguages.forTag("ar-SA").tag)
+        assertEquals("ar-SA", VoiceLanguages.forTag("ar-SA").tag)
+        assertEquals("ar-QA", VoiceLanguages.forTag("ar-JO").tag)
         assertEquals("en-US", VoiceLanguages.forTag("xx-YY").tag)
         assertEquals("hi-IN", VoiceLanguages.forTag("hi").tag)
     }
@@ -296,24 +285,4 @@ class VoiceTest {
         assertNull(GrokJokeClient.parseReply("""{"error":"bad key"}"""))
         assertNull(GrokJokeClient.parseReply("""{"choices":[{"message":{"content":"${"x".repeat(500)}"}}]}"""))
     }
-
-    @Test fun cacheStoresAndEvicts() {
-        val dir = Files.createTempDirectory("voice").toFile()
-        val cache = VoiceCache(dir, maxBytes = 250)
-        val en = VoiceLanguages.forTag("en-US")
-        val k1 = cache.key("Turn left.", en)
-        assertNull(cache.get(k1))
-        cache.put(k1, ByteArray(100))
-        assertNotNull(cache.get(k1))
-        assertTrue(cache.key("Turn left.", VoiceLanguages.forTag("fr-FR")) != k1)
-        dir.listFiles()!!.forEach { it.setLastModified(1_000) }
-        cache.put(cache.key("Turn right.", en), ByteArray(100))
-        cache.put(cache.key("Continue.", en), ByteArray(100))
-        assertTrue(cache.sizeBytes <= 250)
-        assertNull(cache.get(k1))
-        assertEquals(2, cache.clipCount)
-        dir.deleteRecursively()
-    }
-
-    @Suppress("unused") private val unusedBBox = BBox(0.0, 0.0, 1.0, 1.0)
 }

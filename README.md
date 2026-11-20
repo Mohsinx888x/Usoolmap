@@ -21,7 +21,7 @@ routing and positioning work wherever the underlying data exists.
 | Routing | Drive, walk, cycle, motorcycle, truck (Valhalla); bus, metro, rail, public transport (Transitous). Only modes that can be routed right now are shown. | `routing/OnlineRouting.kt` |
 | Offline maps and routing | Download any rectangle on Earth. Map tiles are stored by MapLibre; a road graph is built from OSM so drive / motorcycle / walk / cycle routes are calculated on the phone. | `map/OfflineRegions.kt`, `routing/RoadGraph.kt`, `routing/OfflineRouter.kt` |
 | Navigation | Turn-by-turn progress, advance and at-turn announcements, rerouting, arrival, foreground service that runs only during a route. | `nav/` |
-| Voice | Professional voice through the phone's own speech engine (no network, no AI). Optional fun voice: Grok writes the line and Grok text-to-speech speaks it (`POST /v1/tts`); Arabic lines are requested in Gulf dialect with full tashkeel. Clips are cached on disk and replayed offline. If a clip is not ready the professional voice speaks. The xAI key and voice are set in Settings. | `voice/` |
+| Voice | **Professional**: the phone's own speech engine, no network, no AI. **Funny** and **Smart mixed**: professional guidance plus AI-generated humorous reactions to navigation events. Clips come from the Azure voice backend (`backend/`: Grok text, Azure Speech audio, Blob Storage, PostgreSQL) or, with no backend, are generated on the phone with an xAI key. They are cached locally, never repeat within 90 days, never replace an instruction, and are never played near a junction. An audio scheduler ranks safety alerts, instructions, information and jokes. | `voice/`, `voice/humour/`, `backend/`, `infra/` |
 | Traffic, cameras, limits | Provider interface with per-country selection. Ships with TomTom Traffic (incidents, closures, construction, hazards, flow) and OpenStreetMap (speed limits, fixed cameras). Camera alerts are disabled in countries on a restricted list. | `traffic/` |
 | Regional conventions | km or miles, km/h or mph, driving side, per country, detected from the mobile network, SIM or device language. | `core/RegionProfile.kt` |
 
@@ -64,7 +64,7 @@ routing and positioning work wherever the underlying data exists.
 - **Public servers.** The default endpoints (OpenFreeMap, Nominatim, Valhalla at FOSSGIS,
   Overpass, Transitous) are community services with usage policies and no uptime guarantee. A
   store release should use hosted or commercial equivalents; each URL is a constructor parameter.
-- **API keys in the APK.** Grok, Azure and TomTom keys are compiled into the app. That is fine
+- **API keys in the APK.** TomTom, MapTiler and the voice-service app key are compiled into the app when set. That is fine
   for testing but they can be extracted; for release, put them behind your own server.
 
 ## Build
@@ -73,7 +73,7 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 88 unit tests
+./gradlew testDebugUnitTest                    # 107 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```

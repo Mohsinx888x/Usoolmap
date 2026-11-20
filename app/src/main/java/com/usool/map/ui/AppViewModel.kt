@@ -31,6 +31,11 @@ data class MapUiState(
     val areaLanguage: String = "en",
     val translationBusy: Boolean = false,
     val grokVoice: String = "leo",
+    val personality: String = "",
+    val humourIntensity: Int = 2,
+    val jokeFrequency: Int = 2,
+    val humourOfflineOnly: Boolean = false,
+    val jokesPausedUntil: Long = 0,
     /** Bumped when the Grok key changes so Settings re-reads whether the fun voice is available. */
     val voiceVersion: Int = 0,
     val searching: Boolean = false,
@@ -77,6 +82,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             cameraAlerts = container.settings.cameraAlerts,
             searchLanguage = container.settings.searchLanguage,
             grokVoice = container.settings.grokVoice,
+            personality = container.settings.personality,
+            humourIntensity = container.settings.intensity,
+            jokeFrequency = container.settings.frequency,
+            humourOfflineOnly = container.settings.offlineOnly,
+            jokesPausedUntil = container.settings.pausedUntilWallMs,
             mapTheme = container.settings.mapTheme,
             mapLabels = container.settings.mapLabels,
         ),
@@ -149,7 +159,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun saveGrokKey(key: String) {
         container.settings.grokKey = key
         _ui.update { it.copy(voiceVersion = it.voiceVersion + 1) }
-        showMessage(if (container.voice.humourConfigured) "Saved. The fun voice is available." else "Key removed. The fun voice is off.")
+        container.humour.refreshVoices()
+        showMessage(if (key.isBlank()) "Key removed." else "Key saved on this phone.")
+    }
+
+    /** Saves the address and app key of the cloud voice service. */
+    fun saveVoiceBackend(url: String, appKey: String) {
+        container.settings.backendUrl = url
+        container.settings.backendAppKey = appKey
+        _ui.update { it.copy(voiceVersion = it.voiceVersion + 1) }
+        container.humour.refreshVoices()
+        showMessage(if (url.isBlank()) "Cloud voice service removed." else "Cloud voice service saved.")
+    }
+
+    fun setPersonality(id: String) {
+        container.settings.personality = id
+        _ui.update { it.copy(personality = id) }
+    }
+
+    fun setHumourIntensity(level: Int) {
+        container.settings.intensity = level
+        _ui.update { it.copy(humourIntensity = level.coerceIn(1, 3)) }
+    }
+
+    fun setJokeFrequency(level: Int) {
+        container.settings.frequency = level
+        _ui.update { it.copy(jokeFrequency = level.coerceIn(1, 3)) }
+    }
+
+    fun setHumourOfflineOnly(enabled: Boolean) {
+        container.settings.offlineOnly = enabled
+        _ui.update { it.copy(humourOfflineOnly = enabled) }
+    }
+
+    /** Silences jokes for [minutes]; 0 resumes them. Guidance is not affected. */
+    fun pauseJokes(minutes: Int) {
+        container.humour.pauseJokes(minutes)
+        _ui.update { it.copy(jokesPausedUntil = container.settings.pausedUntilWallMs) }
     }
 
     fun setGrokVoice(id: String) {
@@ -367,12 +413,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setVoiceMode(mode: VoiceMode) {
         container.settings.voiceMode = mode
         container.voice.mode = mode
+        if (mode == VoiceMode.FUNNY || mode == VoiceMode.SMART_MIXED) {
+            container.humour.refreshVoices()
+            // The first time a humorous mode is switched on, fetch the starter library for it.
+            val h = container.humour
+            if (h.library.countFor(container.settings.voiceLanguage, if (h.source == "device") container.settings.grokVoice else container.settings.personality, container.settings.intensity) == 0) h.downloadPack()
+        }
         _ui.update { it.copy(voiceMode = mode) }
     }
 
     fun setVoiceLanguage(language: VoiceLanguage) {
         container.settings.voiceLanguage = language.tag
         container.voice.language = language
+        container.humour.refreshVoices()
         _ui.update { it.copy(voiceLanguage = language.tag) }
     }
 

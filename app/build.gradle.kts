@@ -27,10 +27,10 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "GROK_API_KEY", "\"${secret("GROK_API_KEY")}\"")
         buildConfigField("String", "GROK_MODEL", "\"${secret("GROK_MODEL", "latest")}\"")
-        buildConfigField("String", "AZURE_SPEECH_KEY", "\"${secret("AZURE_SPEECH_KEY")}\"")
-        buildConfigField("String", "AZURE_SPEECH_REGION", "\"${secret("AZURE_SPEECH_REGION", "qatarcentral")}\"")
         buildConfigField("String", "TOMTOM_API_KEY", "\"${secret("TOMTOM_API_KEY")}\"")
         buildConfigField("String", "TERRAIN_TILES_URL", "\"${secret("TERRAIN_TILES_URL")}\"")
+        buildConfigField("String", "VOICE_BACKEND_URL", "\"${secret("VOICE_BACKEND_URL")}\"")
+        buildConfigField("String", "VOICE_BACKEND_APP_KEY", "\"${secret("VOICE_BACKEND_APP_KEY")}\"")
         buildConfigField("String", "MAPILLARY_TOKEN", "\"${secret("MAPILLARY_TOKEN")}\"")
         buildConfigField("String", "MAPTILER_API_KEY", "\"${secret("MAPTILER_API_KEY")}\"")
         buildConfigField("String", "SATELLITE_TILES_URL", "\"${secret("SATELLITE_TILES_URL")}\"")
