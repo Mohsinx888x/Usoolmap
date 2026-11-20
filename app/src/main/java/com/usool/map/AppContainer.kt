@@ -9,6 +9,10 @@ import android.telephony.TelephonyManager
 import com.usool.map.core.Http
 import com.usool.map.core.RegionProfile
 import com.usool.map.gnss.GnssMonitor
+import com.usool.map.imagery.MapillaryProvider
+import com.usool.map.imagery.PanoramaxProvider
+import com.usool.map.imagery.SatelliteCatalog
+import com.usool.map.imagery.StreetViewRepository
 import com.usool.map.map.Buildings3D
 import com.usool.map.map.OfflineRegions
 import com.usool.map.nav.Navigator
@@ -45,6 +49,9 @@ class UsoolMapApp : Application() {
     override fun onCreate() {
         super.onCreate()
         MapLibre.getInstance(this)
+        // A larger tile cache keeps recently viewed map and satellite tiles on the phone, so
+        // returning to an area shows it immediately instead of downloading it again.
+        org.maplibre.android.offline.OfflineManager.getInstance(this).setMaximumAmbientCacheSize(512L * 1024 * 1024, null)
         container = AppContainer(this)
     }
 }
@@ -110,6 +117,20 @@ class AppContainer(private val app: Application) {
     val offlineRegions = OfflineRegions(app, http, scope)
     val buildings = Buildings3D(http)
     val search = SearchRepository(NominatimProvider(http))
+
+    /** Mapillary first (worldwide, needs a token), then Panoramax (open, no key). */
+    val streetView = StreetViewRepository(listOf(MapillaryProvider(http, BuildConfig.MAPILLARY_TOKEN), PanoramaxProvider(http)))
+
+    val satellite = SatelliteCatalog.select(
+        customUrl = BuildConfig.SATELLITE_TILES_URL,
+        customName = BuildConfig.SATELLITE_NAME,
+        customMaxZoom = BuildConfig.SATELLITE_MAX_ZOOM,
+        customAttribution = BuildConfig.SATELLITE_ATTRIBUTION,
+        mapTilerKey = BuildConfig.MAPTILER_API_KEY,
+    )
+
+    /** Loads and caches street photos (memory and disk), so revisited photos open instantly. */
+    val imageLoader: coil.ImageLoader by lazy { coil.ImageLoader.Builder(app).crossfade(false).build() }
 
     val routing = RoutingRepository(
         listOf(

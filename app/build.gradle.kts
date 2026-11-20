@@ -29,6 +29,12 @@ android {
         buildConfigField("String", "AZURE_SPEECH_REGION", "\"${secret("AZURE_SPEECH_REGION", "qatarcentral")}\"")
         buildConfigField("String", "TOMTOM_API_KEY", "\"${secret("TOMTOM_API_KEY")}\"")
         buildConfigField("String", "TERRAIN_TILES_URL", "\"${secret("TERRAIN_TILES_URL")}\"")
+        buildConfigField("String", "MAPILLARY_TOKEN", "\"${secret("MAPILLARY_TOKEN")}\"")
+        buildConfigField("String", "MAPTILER_API_KEY", "\"${secret("MAPTILER_API_KEY")}\"")
+        buildConfigField("String", "SATELLITE_TILES_URL", "\"${secret("SATELLITE_TILES_URL")}\"")
+        buildConfigField("String", "SATELLITE_NAME", "\"${secret("SATELLITE_NAME")}\"")
+        buildConfigField("String", "SATELLITE_ATTRIBUTION", "\"${secret("SATELLITE_ATTRIBUTION")}\"")
+        buildConfigField("int", "SATELLITE_MAX_ZOOM", (secret("SATELLITE_MAX_ZOOM", "19").toIntOrNull() ?: 19).toString())
     }
 
     buildTypes {
@@ -63,6 +69,7 @@ dependencies {
     implementation("org.maplibre.gl:android-sdk:11.13.5")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.13.1")
+    implementation("io.coil-kt:coil:2.7.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

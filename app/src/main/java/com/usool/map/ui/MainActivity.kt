@@ -99,7 +99,10 @@ class MainActivity : ComponentActivity() {
                     Box(Modifier.fillMaxSize()) {
                         // The map stays composed under the other tabs so its state and tiles are kept.
                         MapScreen(vm, visible = tab == Tab.MAP || nav.active, contentPadding = padding)
-                        if (!nav.active) {
+                        val street = ui.streetImages
+                        if (street != null && !nav.active) {
+                            StreetViewScreen(street, ui.streetIndex, vm, Modifier.padding(padding))
+                        } else if (!nav.active) {
                             when (tab) {
                                 Tab.MAP -> Unit
                                 Tab.SATELLITES -> SatelliteCenterScreen(vm, Modifier.padding(padding))

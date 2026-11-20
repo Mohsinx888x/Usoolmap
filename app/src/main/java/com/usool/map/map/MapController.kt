@@ -5,6 +5,8 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.usool.map.core.BBox
 import com.usool.map.core.GeoPoint
+import com.usool.map.imagery.CoverageTiles
+import com.usool.map.imagery.SatelliteSource
 import com.usool.map.traffic.RoadIncident
 import com.usool.map.traffic.SpeedCamera
 import org.maplibre.android.camera.CameraPosition
@@ -22,9 +24,12 @@ import org.maplibre.android.style.layers.Layer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.sources.RasterDemSource
+import org.maplibre.android.style.sources.RasterSource
+import org.maplibre.android.style.sources.VectorSource
 import org.maplibre.android.style.sources.TileSet
 
 /**
@@ -45,7 +50,13 @@ object MapConfig {
 }
 
 /** Everything the app draws on top of the base map. Created once the style has loaded. */
-class MapController(val map: MapLibreMap, private val style: Style, terrainTilesUrl: String) {
+class MapController(
+    val map: MapLibreMap,
+    private val style: Style,
+    terrainTilesUrl: String,
+    private val satellite: SatelliteSource,
+    streetCoverage: List<CoverageTiles>,
+) {
     private val routeSource = GeoJsonSource(SRC_ROUTE, EMPTY)
     private val positionSource = GeoJsonSource(SRC_POSITION, EMPTY)
     private val destinationSource = GeoJsonSource(SRC_DESTINATION, EMPTY)
@@ -58,8 +69,18 @@ class MapController(val map: MapLibreMap, private val style: Style, terrainTiles
         private set
     val terrainAvailable: Boolean = terrainTilesUrl.isNotBlank()
 
-    /** First label layer of the base style; the app's fills and lines go underneath it. */
-    private val firstLabelLayer: String? = style.layers.firstOrNull { it is SymbolLayer }?.id
+    /**
+     * First layer of the block of labels that ends the base style. The app's imagery, fills and
+     * lines go underneath it, so they sit above every road and bridge but below place names.
+     */
+    private val firstLabelLayer: String? = style.layers.let { layers ->
+        val lastNonLabel = layers.indexOfLast { it !is SymbolLayer }
+        layers.getOrNull(lastNonLabel + 1)?.id
+    }
+    private val coverageLayerIds = ArrayList<String>()
+
+    var satelliteVisible = false
+        private set
 
     private fun addBelowLabels(layer: Layer) {
         val anchor = firstLabelLayer
@@ -74,6 +95,35 @@ class MapController(val map: MapLibreMap, private val style: Style, terrainTiles
             val hill = HillshadeLayer(LAYER_TERRAIN, SRC_TERRAIN).withProperties(PropertyFactory.hillshadeExaggeration(0.4f))
             val firstSymbol = style.layers.firstOrNull { it.id.contains("water") }?.id
             if (firstSymbol != null) style.addLayerBelow(hill, firstSymbol) else style.addLayer(hill)
+        }
+
+        // Top-down imagery. Added first so everything else the app draws stays above it.
+        val imagery = TileSet("2.1.0", satellite.tileUrl).apply {
+            minZoom = 0f
+            maxZoom = satellite.maxZoom.toFloat()
+            attribution = satellite.attribution
+        }
+        style.addSource(RasterSource(SRC_SATELLITE, imagery, 256))
+        addBelowLabels(
+            RasterLayer(LAYER_SATELLITE, SRC_SATELLITE).withProperties(
+                PropertyFactory.visibility(Property.NONE),
+                // A short cross-fade keeps tiles from popping in while panning quickly.
+                PropertyFactory.rasterFadeDuration(150f),
+            ),
+        )
+
+        // Lines showing where street-level photos exist, one layer per provider.
+        streetCoverage.forEachIndexed { i, tiles ->
+            val source = "$SRC_STREET_COVERAGE-$i"
+            val set = TileSet("2.1.0", tiles.tileUrl).apply { minZoom = tiles.minZoom.toFloat(); maxZoom = tiles.maxZoom.toFloat() }
+            style.addSource(VectorSource(source, set))
+            val layer = LineLayer("$LAYER_STREET_COVERAGE-$i", source).withProperties(
+                PropertyFactory.lineColor("#00a37a"), PropertyFactory.lineWidth(3f), PropertyFactory.lineOpacity(0.85f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.visibility(Property.NONE),
+            )
+            layer.sourceLayer = tiles.sequenceLayer
+            addBelowLabels(layer)
+            coverageLayerIds += layer.id
         }
 
         style.addSource(buildingsSource)
@@ -176,6 +226,18 @@ class MapController(val map: MapLibreMap, private val style: Style, terrainTiles
         roadInfoSource.setGeoJson(JsonObject().apply { addProperty("type", "FeatureCollection"); add("features", features) }.toString())
     }
 
+    /** Shows or hides the satellite picture under the labels. */
+    fun setSatellite(enabled: Boolean) {
+        satelliteVisible = enabled
+        style.getLayer(LAYER_SATELLITE)?.setProperties(PropertyFactory.visibility(if (enabled) Property.VISIBLE else Property.NONE))
+    }
+
+    /** Shows or hides the lines marking streets that have street-level photos. */
+    fun setStreetCoverage(enabled: Boolean) {
+        val v = if (enabled) Property.VISIBLE else Property.NONE
+        coverageLayerIds.forEach { style.getLayer(it)?.setProperties(PropertyFactory.visibility(v)) }
+    }
+
     /** Switches between flat 2D and tilted 3D with extruded buildings. */
     fun set3D(enabled: Boolean) {
         is3D = enabled
@@ -234,6 +296,10 @@ class MapController(val map: MapLibreMap, private val style: Style, terrainTiles
         private const val SRC_BUILDINGS = "usool-buildings"
         private const val SRC_ROAD_INFO = "usool-road-info"
         private const val SRC_TERRAIN = "usool-terrain"
+        private const val SRC_SATELLITE = "usool-satellite"
+        private const val SRC_STREET_COVERAGE = "usool-street-coverage"
+        private const val LAYER_SATELLITE = "usool-satellite-raster"
+        private const val LAYER_STREET_COVERAGE = "usool-street-coverage-line"
         private const val LAYER_ROUTE = "usool-route-line"
         private const val LAYER_ROUTE_CASING = "usool-route-casing"
         private const val LAYER_POSITION = "usool-position-dot"

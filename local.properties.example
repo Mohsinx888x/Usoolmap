@@ -8,3 +8,13 @@ AZURE_SPEECH_REGION=qatarcentral
 TOMTOM_API_KEY=
 # Optional raster-DEM tile URL (terrarium encoding) from a terrain provider you are licensed to use.
 TERRAIN_TILES_URL=
+
+# Street-level photos. Panoramax works with no key; Mapillary (worldwide) needs a free client token.
+MAPILLARY_TOKEN=
+# Satellite imagery. With nothing set the app uses free Sentinel-2 (about 10 m per pixel).
+# For 30 cm-class imagery supply EITHER a MapTiler key OR a licensed XYZ tile URL of your own.
+MAPTILER_API_KEY=
+SATELLITE_TILES_URL=
+SATELLITE_NAME=
+SATELLITE_ATTRIBUTION=
+SATELLITE_MAX_ZOOM=19

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Satellite
+import androidx.compose.material.icons.filled.Streetview
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,6 +69,7 @@ import com.usool.map.core.Availability
 import com.usool.map.core.GeoPoint
 import com.usool.map.core.RegionProfile
 import com.usool.map.gnss.FixState
+import com.usool.map.imagery.SatelliteCatalog
 import com.usool.map.map.HeightQuality
 import com.usool.map.map.MapConfig
 import com.usool.map.map.MapController
@@ -100,12 +103,19 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
                 map.cameraPosition = CameraPosition.Builder().target(LatLng(RegionProfile.DEFAULT_CENTER.lat, RegionProfile.DEFAULT_CENTER.lon)).zoom(10.5).build()
                 map.uiSettings.isRotateGesturesEnabled = true
                 map.uiSettings.isTiltGesturesEnabled = true
+                // Zoom in far enough for the sharpest imagery; tiles around the view are fetched ahead of time.
+                map.setMaxZoomPreference(21.0)
+                map.prefetchZoomDelta = 4
                 map.setStyle(Style.Builder().fromUri(MapConfig.STYLE_URL)) { style ->
-                    val c = MapController(map, style, BuildConfig.TERRAIN_TILES_URL)
+                    val c = MapController(map, style, BuildConfig.TERRAIN_TILES_URL, vm.container.satellite, vm.container.streetView.coverageLayers)
                     controller = c
-                    vm.onCameraIdle(c.visibleBounds())
-                    map.addOnCameraIdleListener { vm.onCameraIdle(c.visibleBounds()) }
+                    vm.onCameraIdle(c.visibleBounds(), c.zoom)
+                    map.addOnCameraIdleListener { vm.onCameraIdle(c.visibleBounds(), c.zoom) }
                     map.addOnMapLongClickListener { p -> vm.selectPoint(GeoPoint(p.latitude, p.longitude)); true }
+                    map.addOnMapClickListener { p ->
+                        // In street-view mode a tap opens the nearest photo.
+                        if (vm.ui.value.streetMode && !vm.navigation.value.active) { vm.openStreetView(GeoPoint(p.latitude, p.longitude)); true } else false
+                    }
                 }
             }
         }
@@ -136,6 +146,8 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
     }
     LaunchedEffect(c, ui.destination, nav.destination) { c?.setDestination(nav.destination ?: ui.destination?.point) }
     LaunchedEffect(c, ui.is3D) { c?.set3D(ui.is3D) }
+    LaunchedEffect(c, ui.satellite) { c?.setSatellite(ui.satellite) }
+    LaunchedEffect(c, ui.streetMode, nav.active) { c?.setStreetCoverage(ui.streetMode && !nav.active) }
     LaunchedEffect(c, ui.builtGeoJson) { c?.setBuiltBuildings(ui.builtGeoJson) }
     LaunchedEffect(c, nav.incidents, nav.cameras) { c?.setRoadInfo(nav.incidents, nav.cameras) }
     LaunchedEffect(c, ui.destination) { ui.destination?.let { if (!nav.active) c?.moveTo(it.point) } }
@@ -159,6 +171,10 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
                 SearchBar(ui, vm)
                 ModeChips(ui, vm)
             }
+            if (ui.satellite) {
+                val lat = ui.visibleBounds?.let { (it.south + it.north) / 2 } ?: 0.0
+                InfoPill(SatelliteCatalog.describe(vm.container.satellite, lat, ui.zoom))
+            }
             StatusBanners(online = online, gnssWarning = gnss.warning, navigating = nav.active, routeOffline = shownRoute?.offline == true)
 
             Spacer(Modifier.weight(1f))
@@ -167,6 +183,19 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
                 if (ui.buildingSummary != null && ui.is3D) BuildingLegend(onClear = vm::clearBuiltBuildings)
                 Spacer(Modifier.weight(1f))
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SmallFloatingActionButton(
+                        onClick = { vm.setSatellite(!ui.satellite) },
+                        containerColor = if (ui.satellite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                    ) { Icon(Icons.Filled.Satellite, contentDescription = "Satellite view") }
+                    if (!nav.active) {
+                        SmallFloatingActionButton(
+                            onClick = { vm.setStreetMode(!ui.streetMode) },
+                            containerColor = if (ui.streetMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primaryContainer,
+                        ) {
+                            if (ui.streetLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                            else Icon(Icons.Filled.Streetview, contentDescription = "Street view")
+                        }
+                    }
                     SmallFloatingActionButton(onClick = { vm.set3D(!ui.is3D) }) { Text(if (ui.is3D) "2D" else "3D", fontWeight = FontWeight.Bold) }
                     if (!nav.active) {
                         SmallFloatingActionButton(onClick = vm::buildMissing3D) {
@@ -299,6 +328,7 @@ private fun DestinationCard(ui: MapUiState, region: RegionProfile, vm: AppViewMo
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(dest.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(dest.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text("Street view here", Modifier.clickable { vm.openStreetView(dest.point) }, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
             val route = ui.route
             if (route != null) {
                 RouteSummary(route, region)

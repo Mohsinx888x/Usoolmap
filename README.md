@@ -13,6 +13,8 @@ routing and positioning work wherever the underlying data exists.
 | UsoolMap Satellite Center | Coordinates, accuracy, altitude, speed, heading, fix state, satellites in view / used, per-constellation counts, sky plot, signal bars, signal-loss warnings. | `ui/SatelliteCenterScreen.kt` |
 | Worldwide map, 2D and 3D | Planet-wide OpenStreetMap vector tiles, tilt to 3D with building extrusion. Optional hillshade from a terrain source you configure. | `map/MapController.kt` |
 | Build Missing 3D Buildings | For the area on screen, reads real OSM outlines and extrudes them only when a height, floor count or low-rise type is mapped. Estimated shapes are a different colour with a legend; outlines with no height clue stay flat. | `map/Buildings3D.kt` |
+| Satellite view | Top-down imagery under the map labels, zoomable to level 21, with nearby tiles fetched ahead and a 512 MB on-phone tile cache for speed. Free Sentinel-2 (about 10 m per pixel) by default; 30 cm-class imagery when a MapTiler key or a licensed tile URL is configured. The map states the real detail of what is on screen. | `imagery/Satellite.kt`, `map/MapController.kt` |
+| Street view | Real street-level photos from Panoramax (no key) and Mapillary (free token). Green lines mark covered streets; tap to open the nearest photo, step along the street, pinch to zoom, drag 360° photos around. Preview loads first, then full detail; photos are cached. | `imagery/StreetView.kt`, `ui/StreetViewScreen.kt` |
 | Search | Worldwide place and address search (Nominatim), multilingual names, plus coordinates in decimal, DMS and `geo:` form resolved on the device. | `search/`, `core/CoordinateParser.kt` |
 | Routing | Drive, walk, cycle, motorcycle, truck (Valhalla); bus, metro, rail, public transport (Transitous). Only modes that can be routed right now are shown. | `routing/OnlineRouting.kt` |
 | Offline maps and routing | Download any rectangle on Earth. Map tiles are stored by MapLibre; a road graph is built from OSM so drive / motorcycle / walk / cycle routes are calculated on the phone. | `map/OfflineRegions.kt`, `routing/RoadGraph.kt`, `routing/OfflineRouter.kt` |
@@ -27,6 +29,13 @@ routing and positioning work wherever the underlying data exists.
   satellites or get around hardware limits. NavIC and QZSS are regional and many phones do not
   track them.
 - **Map completeness** depends on OpenStreetMap coverage, which varies by country.
+- **Satellite detail.** 30 cm per pixel is commercial imagery (Maxar, Airbus and similar). The app
+  shows it only when you supply a provider key or licensed tile URL, and only where that provider
+  has it. Without one, imagery is Sentinel-2 at about 10 m per pixel. No imagery is ever
+  AI-generated or sharpened to look more detailed than it is.
+- **Street view** shows photos other people have uploaded. Many streets, especially outside
+  Europe and North America, have none; the app then says so. It is not Google Street View, whose
+  licence does not allow use on a non-Google map. 360° photos are shown as a flat strip.
 - **Live traffic** needs a TomTom key and TomTom coverage. Without a key the app says the service
   is unavailable; it never shows invented traffic.
 - **Alternative routes** have no provider yet and are reported as unavailable.
@@ -53,7 +62,7 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 44 unit tests
+./gradlew testDebugUnitTest                    # 52 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```

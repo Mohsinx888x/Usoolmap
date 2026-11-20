@@ -7,6 +7,7 @@ import com.usool.map.UsoolMapApp
 import com.usool.map.core.Availability
 import com.usool.map.core.BBox
 import com.usool.map.core.GeoPoint
+import com.usool.map.imagery.StreetImage
 import com.usool.map.map.BuildingSummary
 import com.usool.map.map.Buildings3D
 import com.usool.map.routing.Route
@@ -38,6 +39,14 @@ data class MapUiState(
     val voiceMode: VoiceMode = VoiceMode.PROFESSIONAL,
     val voiceLanguage: String = "en-US",
     val cameraAlerts: Boolean = true,
+    val zoom: Double = 10.0,
+    val satellite: Boolean = false,
+    /** Street-view mode: coverage lines are shown and a tap on the map opens the nearest photo. */
+    val streetMode: Boolean = false,
+    val streetLoading: Boolean = false,
+    /** Photos near the tapped point, nearest first; non-null while the viewer is open. */
+    val streetImages: List<StreetImage>? = null,
+    val streetIndex: Int = 0,
 )
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -148,7 +157,43 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun set3D(enabled: Boolean) = _ui.update { it.copy(is3D = enabled) }
 
-    fun onCameraIdle(bounds: BBox) = _ui.update { it.copy(visibleBounds = bounds) }
+    fun onCameraIdle(bounds: BBox, zoom: Double) = _ui.update { it.copy(visibleBounds = bounds, zoom = zoom) }
+
+    fun setSatellite(enabled: Boolean) = _ui.update { it.copy(satellite = enabled) }
+
+    fun setStreetMode(enabled: Boolean) {
+        _ui.update { it.copy(streetMode = enabled) }
+        if (enabled) {
+            val names = container.streetView.activeProviders.joinToString(" and ") { it.name }
+            showMessage("Green lines show streets with photos ($names). Tap one to look around.")
+        }
+    }
+
+    /** Opens the street-level photos nearest to [point]. Says so plainly when there are none. */
+    fun openStreetView(point: GeoPoint) {
+        if (!online.value) { showMessage("Street photos need an internet connection."); return }
+        if (_ui.value.streetLoading) return
+        _ui.update { it.copy(streetLoading = true) }
+        viewModelScope.launch {
+            try {
+                val images = container.streetView.near(point)
+                if (images.isEmpty()) {
+                    _ui.update { it.copy(streetLoading = false, message = "No street-level photos have been taken here yet.") }
+                } else {
+                    _ui.update { it.copy(streetLoading = false, streetImages = images.take(40), streetIndex = 0) }
+                }
+            } catch (e: Exception) {
+                _ui.update { it.copy(streetLoading = false, message = e.message ?: "Street photos could not be loaded.") }
+            }
+        }
+    }
+
+    fun stepStreetImage(delta: Int) = _ui.update { s ->
+        val n = s.streetImages?.size ?: return@update s
+        s.copy(streetIndex = (s.streetIndex + delta).coerceIn(0, n - 1))
+    }
+
+    fun closeStreetView() = _ui.update { it.copy(streetImages = null, streetIndex = 0) }
 
     fun buildMissing3D() {
         val bounds = _ui.value.visibleBounds ?: return
