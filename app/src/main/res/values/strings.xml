@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UsoolMap</string>
+    <string name="app_full_name">UsoolMap – AI 3D Global Navigation</string>
+    <string name="satellite_center">UsoolMap Satellite Center</string>
+</resources>

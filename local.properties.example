@@ -1,0 +1,10 @@
+# Copy to local.properties (never commit it). All keys are optional:
+# the app runs without them and reports the matching service as unavailable.
+sdk.dir=/path/to/Android/sdk
+GROK_API_KEY=
+GROK_MODEL=grok-4
+AZURE_SPEECH_KEY=
+AZURE_SPEECH_REGION=qatarcentral
+TOMTOM_API_KEY=
+# Optional raster-DEM tile URL (terrarium encoding) from a terrain provider you are licensed to use.
+TERRAIN_TILES_URL=

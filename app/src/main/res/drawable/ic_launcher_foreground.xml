@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Globe outline with a navigation arrow -->
+    <path android:fillColor="#00000000" android:strokeColor="#7FB2FF" android:strokeWidth="2.5"
+        android:pathData="M54,54m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0 M30,54h48 M54,30c-12,10 -12,38 0,48 M54,30c12,10 12,38 0,48" />
+    <path android:fillColor="#FFFFFF" android:pathData="M54,36 L67,68 L54,61 L41,68 Z" />
+</vector>
