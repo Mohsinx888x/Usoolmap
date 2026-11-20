@@ -1,0 +1,27 @@
+{
+  "name": "usoolmap-voice-backend",
+  "version": "1.0.0",
+  "description": "Cloud backend for UsoolMap humorous voice clips: HTTP API and generation worker.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
+    "voice-qa": "node scripts/voice-qa.js"
+  },
+  "dependencies": {
+    "@azure/identity": "^4.14.1",
+    "@azure/storage-blob": "^12.34.0",
+    "@azure/storage-queue": "^12.32.0",
+    "fastify": "^5.12.8",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0"
+  },
+  "devDependencies": {
+    "azurite": "^3.38.0"
+  }
+}
