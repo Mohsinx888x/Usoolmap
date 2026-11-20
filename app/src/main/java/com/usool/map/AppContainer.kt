@@ -120,6 +120,15 @@ class Settings(context: Context) {
         get() = prefs.getString("search_language", null) ?: VoiceLanguages.forTag(Locale.getDefault().toLanguageTag()).tag
         set(v) = prefs.edit().putString("search_language", v).apply()
 
+    /** xAI (Grok) API key for the humorous voice, kept on this phone. */
+    var grokKey: String
+        get() = prefs.getString("grok_key", "") ?: ""
+        set(v) = prefs.edit().putString("grok_key", v.trim()).apply()
+
+    var grokVoice: String
+        get() = prefs.getString("grok_voice", null) ?: com.usool.map.voice.GrokVoiceClient.DEFAULT_VOICE
+        set(v) = prefs.edit().putString("grok_voice", v).apply()
+
     var esriKey: String
         get() = prefs.getString("esri_key", "") ?: ""
         set(v) = prefs.edit().putString("esri_key", v.trim()).apply()
@@ -201,8 +210,10 @@ class AppContainer(private val app: Application) {
 
     val voice = VoiceGuide(
         app, scope,
-        GrokJokeClient(http, BuildConfig.GROK_API_KEY, BuildConfig.GROK_MODEL),
+        GrokJokeClient(http, { settings.grokKey.ifBlank { BuildConfig.GROK_API_KEY } }, BuildConfig.GROK_MODEL),
+        com.usool.map.voice.GrokVoiceClient(http) { settings.grokKey.ifBlank { BuildConfig.GROK_API_KEY } },
         AzureSpeechClient(http, BuildConfig.AZURE_SPEECH_KEY, BuildConfig.AZURE_SPEECH_REGION),
+        { settings.grokVoice },
         VoiceCache(File(app.filesDir, "voice-cache")),
         isOnline,
     ).also {

@@ -9,7 +9,7 @@ import java.security.MessageDigest
 
 enum class VoiceMode(val label: String) {
     PROFESSIONAL("Professional"),
-    HUMOROUS("Humorous (AI)"),
+    HUMOROUS("Fun (Grok AI voice)"),
     MUTED("Muted"),
 }
 
@@ -43,24 +43,53 @@ object VoiceLanguages {
             ?: all.first()
 }
 
+/** Helpers for Arabic text that will be read aloud. */
+object ArabicText {
+    private val LETTER = Regex("[\\u0621-\\u063A\\u0641-\\u064A]")
+    private val MARK = Regex("[\\u064B-\\u0652]")
+
+    fun isArabic(text: String): Boolean = LETTER.containsMatchIn(text)
+
+    /**
+     * Share of Arabic letters that carry a vowel mark (tashkeel). Fully vowelled text scores
+     * around 0.6 or more, since long vowels and word endings often take none.
+     */
+    fun tashkeelRatio(text: String): Double {
+        val letters = LETTER.findAll(text).count()
+        return if (letters == 0) 0.0 else MARK.findAll(text).count().toDouble() / letters
+    }
+
+    /** True when the text is vowelled enough for a speech engine to pronounce it unambiguously. */
+    fun isVowelled(text: String): Boolean = tashkeelRatio(text) >= 0.4
+}
+
 /**
- * Asks the Grok API to restate one navigation instruction with a short joke. The instruction's
- * meaning (direction, distance, street) must survive, so the reply is rejected when it is too
- * long or empty and the caller falls back to the professional wording.
+ * Asks Grok to restate one navigation instruction with a short joke. The instruction's meaning
+ * (direction, distance, street) must survive, so the reply is rejected when it is too long or
+ * empty and the caller falls back to the professional wording.
+ *
+ * Arabic lines are requested with full tashkeel: unvowelled Arabic is ambiguous, and a speech
+ * engine guessing the vowels is what makes dialect sound wrong. A reply that comes back
+ * unvowelled is asked for once more before it is accepted as it is.
  */
-class GrokJokeClient(private val http: Http, private val apiKey: String, private val model: String) {
+class GrokJokeClient(private val http: Http, private val keySource: () -> String, private val model: String) {
+    constructor(http: Http, apiKey: String, model: String) : this(http, { apiKey }, model)
+
+    private val apiKey: String get() = keySource().trim()
     val configured: Boolean get() = apiKey.isNotBlank()
 
     suspend fun humorousLine(instruction: String, language: VoiceLanguage): String? {
         if (!configured) return null
-        val system = "You are the voice of a car navigation app. Rewrite the driving instruction you are given as ONE short spoken " +
-            "sentence (at most 25 words) in the language ${language.tag}, using ${language.humourStyle}. Keep the direction, distance and " +
-            "street name exactly as given. Family-friendly: no insults, politics, religion, stereotypes or anything that distracts from " +
-            "safe driving. Reply with the sentence only."
+        val first = ask(systemPrompt(language, strict = false), instruction) ?: return null
+        if (!language.tag.startsWith("ar") || ArabicText.isVowelled(first)) return first
+        return ask(systemPrompt(language, strict = true), instruction)?.takeIf { ArabicText.isVowelled(it) } ?: first
+    }
+
+    private suspend fun ask(system: String, instruction: String): String? {
         val body = JsonObject().apply {
             addProperty("model", model)
             addProperty("temperature", 0.9)
-            addProperty("max_tokens", 120)
+            addProperty("max_tokens", 300)
             add("messages", JsonArray().apply {
                 add(JsonObject().apply { addProperty("role", "system"); addProperty("content", system) })
                 add(JsonObject().apply { addProperty("role", "user"); addProperty("content", instruction) })
@@ -75,13 +104,84 @@ class GrokJokeClient(private val http: Http, private val apiKey: String, private
     }
 
     companion object {
+        fun systemPrompt(language: VoiceLanguage, strict: Boolean): String {
+            val base = "You are the voice of a car navigation app. Rewrite the driving instruction you are given as ONE short spoken " +
+                "sentence (at most 25 words) in the language ${language.tag}, using ${language.humourStyle}. Keep the direction, distance and " +
+                "street name exactly as given. Family-friendly: no insults, politics, religion, stereotypes or anything that distracts from " +
+                "safe driving. Reply with the sentence only."
+            if (!language.tag.startsWith("ar")) return base
+            val dialect = if (language.tag in GULF_TAGS) {
+                " Write in Gulf (Khaleeji) Arabic as spoken in Qatar and the Gulf, with Gulf words and phrasing (for example يَمِين، يَسَار، سِيدَه، لِفّ، الْحِين، شْوَيّ، دَوَّار), not Modern Standard Arabic and not Egyptian or Levantine."
+            } else ""
+            val tashkeel = " Write every Arabic word with full tashkeel (fatha, damma, kasra, sukun, shadda, tanween) that matches how the word is pronounced in this dialect, so that a speech engine reads it correctly. Write numbers as vowelled Arabic words, not digits."
+            val again = if (strict) " Your previous answer was missing tashkeel. Every single word must carry its vowel marks." else ""
+            return base + dialect + tashkeel + again
+        }
+
+        private val GULF_TAGS = setOf("ar-QA", "ar-AE", "ar-SA", "ar-KW", "ar-BH", "ar-OM")
+
         fun parseReply(json: String): String? {
             val line = runCatching {
                 JsonParser.parseString(json).asJsonObject.getAsJsonArray("choices")[0].asJsonObject
                     .getAsJsonObject("message").get("content").asString
             }.getOrNull()?.trim()?.trim('"', '“', '”') ?: return null
-            return line.takeIf { it.isNotBlank() && it.length <= 320 }
+            // Vowel marks roughly double the length of Arabic text, so the limit allows for them.
+            return line.takeIf { it.isNotBlank() && it.length <= 480 }
         }
+    }
+}
+
+/**
+ * Speaks text with xAI's Grok text-to-speech (`POST /v1/tts`). Any Grok voice can speak any
+ * supported language; Gulf Arabic uses the `ar-AE` or `ar-SA` language setting.
+ * Returns MP3 bytes, or null on any failure.
+ */
+class GrokVoiceClient(private val http: Http, private val keySource: () -> String) {
+    private val apiKey: String get() = keySource().trim()
+    val configured: Boolean get() = apiKey.isNotBlank()
+
+    suspend fun synthesize(text: String, language: VoiceLanguage, voiceId: String): ByteArray? {
+        if (!configured) return null
+        return try {
+            http.postBytes("https://api.x.ai/v1/tts", requestBody(text, language.tag, voiceId), "application/json", mapOf("Authorization" to "Bearer $apiKey"))
+                .takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    companion object {
+        /** Built-in voices offered in Settings. The full list is at `GET /v1/tts/voices`. */
+        val VOICES = listOf("ara", "eve", "leo", "rex", "sal", "atlas", "orion", "luna")
+        const val DEFAULT_VOICE = "leo"
+
+        private val SUPPORTED = setOf("en", "ar-EG", "ar-SA", "ar-AE", "bn", "zh", "fr", "de", "hi", "id", "it", "ja", "ko", "pt-BR", "pt-PT", "ru", "es-MX", "es-ES", "tr", "vi")
+
+        /** Maps an app language tag onto the codes the TTS API accepts; `auto` when there is none. */
+        fun ttsLanguage(tag: String): String {
+            if (tag in SUPPORTED) return tag
+            val base = tag.substringBefore('-').lowercase()
+            return when {
+                // Gulf countries without their own code use the UAE (Gulf dialect) setting.
+                tag in setOf("ar-QA", "ar-KW", "ar-BH", "ar-OM") -> "ar-AE"
+                base == "ar" -> "ar-SA"
+                base == "es" -> "es-ES"
+                base == "pt" -> "pt-BR"
+                base in SUPPORTED -> base
+                else -> "auto"
+            }
+        }
+
+        fun requestBody(text: String, languageTag: String, voiceId: String): String = JsonObject().apply {
+            addProperty("text", text)
+            addProperty("voice_id", voiceId)
+            addProperty("language", ttsLanguage(languageTag))
+            add("output_format", JsonObject().apply {
+                addProperty("codec", "mp3")
+                addProperty("sample_rate", 24000)
+                addProperty("bit_rate", 64000)
+            })
+        }.toString()
     }
 }
 
@@ -118,8 +218,9 @@ class AzureSpeechClient(private val http: Http, private val key: String, private
 class VoiceCache(private val dir: File, private val maxBytes: Long = 64L * 1024 * 1024) {
     init { dir.mkdirs() }
 
-    fun key(instruction: String, language: VoiceLanguage): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest("${language.tag}|${language.azureVoice}|$instruction".toByteArray())
+    /** [voice] identifies the engine and voice, so changing the voice does not replay old clips. */
+    fun key(instruction: String, language: VoiceLanguage, voice: String = language.azureVoice): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest("${language.tag}|$voice|$instruction".toByteArray())
         return digest.joinToString("") { "%02x".format(it) }.take(40)
     }
 

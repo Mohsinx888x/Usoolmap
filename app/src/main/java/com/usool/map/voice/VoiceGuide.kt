@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
  *
  * The professional voice uses the device's own text-to-speech engine, so it needs neither the
  * internet nor any AI service. The humorous voice is an optional layer on top: lines are written
- * by Grok and synthesised by Azure Speech ahead of time, stored in [cache], and played only when
+ * by Grok and spoken by Grok's own text-to-speech ahead of time, stored in [cache], and played only when
  * the clip is already on disk. If it is not, the professional voice speaks instead, so a slow or
  * missing AI service can never delay or silence an instruction.
  */
@@ -25,7 +25,10 @@ class VoiceGuide(
     context: Context,
     private val scope: CoroutineScope,
     private val grok: GrokJokeClient,
+    private val grokVoice: GrokVoiceClient,
     private val azure: AzureSpeechClient,
+    /** Grok voice chosen in Settings. */
+    private val grokVoiceId: () -> String,
     val cache: VoiceCache,
     private val online: () -> Boolean,
 ) {
@@ -40,7 +43,10 @@ class VoiceGuide(
     @Volatile var language: VoiceLanguage = VoiceLanguages.all.first()
         set(value) { field = value; applyTtsLanguage() }
 
-    val humourConfigured: Boolean get() = grok.configured && azure.configured
+    /** The humorous voice needs only an xAI key: Grok writes the line and Grok speaks it. */
+    val humourConfigured: Boolean get() = grok.configured
+
+    private fun clipKey(instruction: String, language: VoiceLanguage) = cache.key(instruction, language, "grok:${grokVoiceId()}")
 
     /** False when the device has no speech data installed for [language]. */
     @Volatile var professionalVoiceAvailable: Boolean = true
@@ -86,7 +92,7 @@ class VoiceGuide(
         when (mode) {
             VoiceMode.MUTED -> return
             VoiceMode.HUMOROUS -> {
-                val clip = jokeKey?.let { cache.get(cache.key(it, language)) }
+                val clip = jokeKey?.let { cache.get(clipKey(it, language)) }
                 if (clip != null && play(clip)) return
                 speakProfessional(instruction)
             }
@@ -121,7 +127,7 @@ class VoiceGuide(
      */
     fun prepare(instructions: List<String>) {
         if (mode != VoiceMode.HUMOROUS || !humourConfigured) return
-        instructions.distinct().filter { cache.get(cache.key(it, language)) == null && it !in pending }.forEach { pending += it }
+        instructions.distinct().filter { cache.get(clipKey(it, language)) == null && it !in pending }.forEach { pending += it }
         syncPending()
     }
 
@@ -132,10 +138,11 @@ class VoiceGuide(
             while (true) {
                 val instruction = pending.peek() ?: break
                 if (!online()) break
-                val key = cache.key(instruction, lang)
+                val key = clipKey(instruction, lang)
                 if (cache.get(key) == null) {
                     val line = grok.humorousLine(instruction, lang)
-                    val audio = line?.let { azure.synthesize(it, lang) }
+                    // Grok speaks the line; Azure is used only if it is configured and Grok speech fails.
+                    val audio = line?.let { grokVoice.synthesize(it, lang, grokVoiceId()) ?: azure.synthesize(it, lang) }
                     if (audio == null) {
                         // Leave it queued and stop; the next sync (or the next route) tries again.
                         break

@@ -294,7 +294,7 @@ class VoiceTest {
     @Test fun parsesGrokReplyAndRejectsBadOnes() {
         assertEquals("Turn right, like you meant it.", GrokJokeClient.parseReply("""{"choices":[{"message":{"role":"assistant","content":"\"Turn right, like you meant it.\""}}]}"""))
         assertNull(GrokJokeClient.parseReply("""{"error":"bad key"}"""))
-        assertNull(GrokJokeClient.parseReply("""{"choices":[{"message":{"content":"${"x".repeat(400)}"}}]}"""))
+        assertNull(GrokJokeClient.parseReply("""{"choices":[{"message":{"content":"${"x".repeat(500)}"}}]}"""))
     }
 
     @Test fun cacheStoresAndEvicts() {

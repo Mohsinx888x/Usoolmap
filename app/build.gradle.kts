@@ -26,7 +26,7 @@ android {
         // Phone and tablet processors only; emulator-only x86 libraries would double the download.
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         buildConfigField("String", "GROK_API_KEY", "\"${secret("GROK_API_KEY")}\"")
-        buildConfigField("String", "GROK_MODEL", "\"${secret("GROK_MODEL", "grok-4")}\"")
+        buildConfigField("String", "GROK_MODEL", "\"${secret("GROK_MODEL", "latest")}\"")
         buildConfigField("String", "AZURE_SPEECH_KEY", "\"${secret("AZURE_SPEECH_KEY")}\"")
         buildConfigField("String", "AZURE_SPEECH_REGION", "\"${secret("AZURE_SPEECH_REGION", "qatarcentral")}\"")
         buildConfigField("String", "TOMTOM_API_KEY", "\"${secret("TOMTOM_API_KEY")}\"")

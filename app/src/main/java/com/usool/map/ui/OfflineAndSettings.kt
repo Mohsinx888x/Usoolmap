@@ -169,10 +169,20 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     }
                 }
                 Text(
-                    if (voice.humourConfigured) "Humorous lines are written by Grok and voiced by Azure Speech, then saved on the phone. If a line is not ready, the professional voice speaks instead."
-                    else "Humorous mode is unavailable: this build has no Grok and Azure Speech keys. The professional voice works without them.",
+                    if (voice.humourConfigured.also { ui.voiceVersion }) "Fun lines are written and spoken by Grok (xAI), then saved on the phone. Arabic lines use Gulf dialect with full vowel marks so they are pronounced correctly. If a line is not ready, the professional voice speaks instead."
+                    else "The fun voice needs an xAI (Grok) API key from console.x.ai. Paste it below. The professional voice works without it.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                var grokKey by remember { mutableStateOf(vm.container.settings.grokKey) }
+                OutlinedTextField(value = grokKey, onValueChange = { grokKey = it }, label = { Text("xAI (Grok) API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { vm.saveGrokKey(grokKey) }) { Text("Save key") }
+                    var voiceOpen by remember { mutableStateOf(false) }
+                    OutlinedButton(onClick = { voiceOpen = true }) { Text("Grok voice: ${ui.grokVoice}") }
+                    DropdownMenu(expanded = voiceOpen, onDismissRequest = { voiceOpen = false }) {
+                        com.usool.map.voice.GrokVoiceClient.VOICES.forEach { v -> DropdownMenuItem(text = { Text(v) }, onClick = { vm.setGrokVoice(v); voiceOpen = false }) }
+                    }
+                }
                 var open by remember { mutableStateOf(false) }
                 val current = VoiceLanguages.forTag(ui.voiceLanguage)
                 OutlinedButton(onClick = { open = true }) { Text("Language: ${current.label}") }

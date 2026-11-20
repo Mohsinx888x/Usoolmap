@@ -30,6 +30,9 @@ data class MapUiState(
     /** Language of place names where the map is looking, e.g. "zh" over China. */
     val areaLanguage: String = "en",
     val translationBusy: Boolean = false,
+    val grokVoice: String = "leo",
+    /** Bumped when the Grok key changes so Settings re-reads whether the fun voice is available. */
+    val voiceVersion: Int = 0,
     val searching: Boolean = false,
     val destination: Place? = null,
     val mode: TravelMode = TravelMode.DRIVING,
@@ -68,6 +71,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             voiceLanguage = container.settings.voiceLanguage,
             cameraAlerts = container.settings.cameraAlerts,
             searchLanguage = container.settings.searchLanguage,
+            grokVoice = container.settings.grokVoice,
             mapTheme = container.settings.mapTheme,
             mapLabels = container.settings.mapLabels,
         ),
@@ -135,6 +139,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.update { it.copy(searching = false, message = e.message ?: "Search failed.") }
             }
         }
+    }
+
+    fun saveGrokKey(key: String) {
+        container.settings.grokKey = key
+        _ui.update { it.copy(voiceVersion = it.voiceVersion + 1) }
+        showMessage(if (container.voice.humourConfigured) "Saved. The fun voice is available." else "Key removed. The fun voice is off.")
+    }
+
+    fun setGrokVoice(id: String) {
+        container.settings.grokVoice = id
+        _ui.update { it.copy(grokVoice = id) }
     }
 
     fun setSearchLanguage(tag: String) {

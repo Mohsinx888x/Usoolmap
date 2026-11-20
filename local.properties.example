@@ -2,7 +2,7 @@
 # the app runs without them and reports the matching service as unavailable.
 sdk.dir=/path/to/Android/sdk
 GROK_API_KEY=
-GROK_MODEL=grok-4
+GROK_MODEL=latest
 AZURE_SPEECH_KEY=
 AZURE_SPEECH_REGION=qatarcentral
 TOMTOM_API_KEY=
