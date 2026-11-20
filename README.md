@@ -13,6 +13,7 @@ routing and positioning work wherever the underlying data exists.
 | UsoolMap Satellite Center | Coordinates, accuracy, altitude, speed, heading, fix state, satellites in view / used, per-constellation counts, sky plot, signal bars, signal-loss warnings. | `ui/SatelliteCenterScreen.kt` |
 | Worldwide map, 2D and 3D | Planet-wide OpenStreetMap vector tiles, tilt to 3D with building extrusion. Optional hillshade from a terrain source you configure. | `map/MapController.kt` |
 | Build Missing 3D Buildings | For the area on screen, reads real OSM outlines and extrudes them only when a height, floor count or low-rise type is mapped. Estimated shapes are a different colour with a legend; outlines with no height clue stay flat. | `map/Buildings3D.kt` |
+| Map appearance | Day and night palettes in Usool gold, black and white (`assets/map_themes.json`), switching automatically with the phone's dark mode or after sunset; 3D buildings shaded by height; place names in one language (phone language, Arabic, English or local). | `map/MapTheme.kt`, `map/MapController.kt` |
 | Satellite view | Top-down imagery under the map labels, zoomable to level 21, with nearby tiles fetched ahead and a 512 MB on-phone tile cache for speed. Free Sentinel-2 (about 10 m per pixel) by default; 30 cm-class imagery when a MapTiler key or a licensed tile URL is configured. The map states the real detail of what is on screen. | `imagery/Satellite.kt`, `map/MapController.kt` |
 | Street view | Real street-level photos from Panoramax (no key) and Mapillary (free token). Green lines mark covered streets; tap to open the nearest photo, step along the street, pinch to zoom, drag 360° photos around. Preview loads first, then full detail; photos are cached. | `imagery/StreetView.kt`, `ui/StreetViewScreen.kt` |
 | Search | Worldwide place and address search (Nominatim), multilingual names, plus coordinates in decimal, DMS and `geo:` form resolved on the device. | `search/`, `core/CoordinateParser.kt` |
@@ -62,7 +63,7 @@ Requirements: JDK 17 or newer, Android SDK platform 35.
 
 ```bash
 cp local.properties.example local.properties   # set sdk.dir, add keys if you have them
-./gradlew testDebugUnitTest                    # 52 unit tests
+./gradlew testDebugUnitTest                    # 56 unit tests
 ./gradlew assembleDebug                        # app/build/outputs/apk/debug/UsoolMap-1.0.0-debug.apk
 ./gradlew bundleRelease                        # UsoolMap-1.0.0-release.aab (needs your signing key)
 ```

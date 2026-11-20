@@ -1,0 +1,44 @@
+{
+  "day": {
+    "route": { "line": "#FEC502", "casing": "#111111" },
+    "position": { "fill": "#FEC502", "stroke": "#111111" },
+    "destination": { "fill": "#111111", "stroke": "#FEC502" },
+    "buildings": [[0, "#f1ebe0"], [30, "#e3d6c0"], [120, "#cdbb9c"], [400, "#b39d7b"]],
+    "rules": []
+  },
+  "night": {
+    "route": { "line": "#FFD84A", "casing": "#ffffff" },
+    "position": { "fill": "#FEC502", "stroke": "#ffffff" },
+    "destination": { "fill": "#ffffff", "stroke": "#FEC502" },
+    "buildings": [[0, "#2a303a"], [30, "#39424f"], [120, "#4b5667"], [400, "#637187"]],
+    "rules": [
+      { "id": "^background$", "paint": { "background-color": "#14171c" } },
+      { "id": "^natural_earth$", "hide": true },
+      { "id": "^park_outline$", "paint": { "line-color": "#223528" } },
+      { "id": "^(park|landcover_wood|landcover_grass|landuse_pitch|landuse_track|landuse_cemetery|landuse_school)$", "paint": { "fill-color": "#1a2a21" } },
+      { "id": "^landcover_wetland$", "hide": true },
+      { "id": "^landuse_residential$", "paint": { "fill-color": "#191d23" } },
+      { "id": "^landuse_hospital$", "paint": { "fill-color": "#2a1f27" } },
+      { "id": "^landcover_sand$", "paint": { "fill-color": "#211f18" } },
+      { "id": "^landcover_ice$", "paint": { "fill-color": "#2b333b" } },
+      { "id": "^(waterway_line_label|water_name)", "paint": { "text-color": "#6fa7cf", "text-halo-color": "#0d2436" } },
+      { "id": "^waterway_", "paint": { "line-color": "#0d2436" } },
+      { "id": "^water$", "paint": { "fill-color": "#0d2436" } },
+      { "id": "^aeroway_fill$", "paint": { "fill-color": "#1d2128" } },
+      { "id": "^aeroway_", "paint": { "line-color": "#2c323b" } },
+      { "id": "^road_area_pattern$", "hide": true },
+      { "id": "_casing$", "paint": { "line-color": "#0c0e12" } },
+      { "id": "path_pedestrian$", "paint": { "line-color": "#3c424c" } },
+      { "id": "_motorway(_link)?$", "paint": { "line-color": "#d6a20a" } },
+      { "id": "_trunk_primary$", "paint": { "line-color": "#94782a" } },
+      { "id": "_(secondary_tertiary|link)$", "paint": { "line-color": "#5f5638" } },
+      { "id": "_(minor|street|service_track)$", "paint": { "line-color": "#353b45" } },
+      { "id": "rail", "paint": { "line-color": "#4b515b" } },
+      { "id": "^building$", "paint": { "fill-color": "#20242b", "fill-outline-color": "#2b3038" } },
+      { "id": "^boundary", "paint": { "line-color": "#5b6272" } },
+      { "id": "^highway-name", "paint": { "text-color": "#c4c8cf", "text-halo-color": "#14171c" } },
+      { "id": "^(poi_|airport)", "paint": { "text-color": "#b4b9c2", "text-halo-color": "#14171c" } },
+      { "id": "^label_", "paint": { "text-color": "#f4f4f4", "text-halo-color": "#14171c" } }
+    ]
+  }
+}

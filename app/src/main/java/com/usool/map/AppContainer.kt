@@ -99,6 +99,14 @@ class Settings(context: Context) {
         get() = prefs.getString("country", null)
         set(v) = prefs.edit().putString("country", v).apply()
 
+    var mapTheme: com.usool.map.map.MapThemeMode
+        get() = runCatching { com.usool.map.map.MapThemeMode.valueOf(prefs.getString("map_theme", null) ?: "") }.getOrDefault(com.usool.map.map.MapThemeMode.AUTO)
+        set(v) = prefs.edit().putString("map_theme", v.name).apply()
+
+    var mapLabels: com.usool.map.map.MapLabels
+        get() = runCatching { com.usool.map.map.MapLabels.valueOf(prefs.getString("map_labels", null) ?: "") }.getOrDefault(com.usool.map.map.MapLabels.PHONE)
+        set(v) = prefs.edit().putString("map_labels", v.name).apply()
+
     var cameraAlerts: Boolean
         get() = prefs.getBoolean("camera_alerts", true)
         set(v) = prefs.edit().putBoolean("camera_alerts", v).apply()
@@ -128,6 +136,10 @@ class AppContainer(private val app: Application) {
         customAttribution = BuildConfig.SATELLITE_ATTRIBUTION,
         mapTilerKey = BuildConfig.MAPTILER_API_KEY,
     )
+
+    private val themeJson: String by lazy { app.assets.open("map_themes.json").use { it.readBytes().toString(Charsets.UTF_8) } }
+    val dayTheme: com.usool.map.map.MapTheme by lazy { com.usool.map.map.MapTheme.parse(themeJson, dark = false) }
+    val nightTheme: com.usool.map.map.MapTheme by lazy { com.usool.map.map.MapTheme.parse(themeJson, dark = true) }
 
     /** Loads and caches street photos (memory and disk), so revisited photos open instantly. */
     val imageLoader: coil.ImageLoader by lazy { coil.ImageLoader.Builder(app).crossfade(false).build() }

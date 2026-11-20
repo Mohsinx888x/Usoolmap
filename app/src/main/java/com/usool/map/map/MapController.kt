@@ -16,6 +16,7 @@ import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.BackgroundLayer
 import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.FillExtrusionLayer
 import org.maplibre.android.style.layers.FillLayer
@@ -56,6 +57,9 @@ class MapController(
     terrainTilesUrl: String,
     private val satellite: SatelliteSource,
     streetCoverage: List<CoverageTiles>,
+    private val theme: MapTheme,
+    /** Language code for place names ("ar", "en", "local"), or null to leave the style's own labels. */
+    labelLanguage: String?,
 ) {
     private val routeSource = GeoJsonSource(SRC_ROUTE, EMPTY)
     private val positionSource = GeoJsonSource(SRC_POSITION, EMPTY)
@@ -96,6 +100,9 @@ class MapController(
             val firstSymbol = style.layers.firstOrNull { it.id.contains("water") }?.id
             if (firstSymbol != null) style.addLayerBelow(hill, firstSymbol) else style.addLayer(hill)
         }
+
+        applyTheme()
+        if (labelLanguage != null) applyLabelLanguage(labelLanguage)
 
         // Top-down imagery. Added first so everything else the app draws stays above it.
         val imagery = TileSet("2.1.0", satellite.tileUrl).apply {
@@ -142,7 +149,7 @@ class MapController(
                 PropertyFactory.fillExtrusionColor(
                     Expression.match(
                         Expression.get("quality"),
-                        Expression.literal("MEASURED"), Expression.color(Color.parseColor(MapConfig.COLOR_MEASURED)),
+                        Expression.literal("MEASURED"), Expression.color(Color.parseColor(theme.buildingStops.getOrElse(1) { theme.buildingStops.first() }.second)),
                         Expression.literal("FROM_LEVELS"), Expression.color(Color.parseColor(MapConfig.COLOR_FROM_LEVELS)),
                         Expression.color(Color.parseColor(MapConfig.COLOR_FROM_TYPE)),
                     ),
@@ -153,13 +160,13 @@ class MapController(
         style.addSource(routeSource)
         addBelowLabels(
             LineLayer(LAYER_ROUTE_CASING, SRC_ROUTE).withProperties(
-                PropertyFactory.lineColor("#0b3d91"), PropertyFactory.lineWidth(9f),
+                PropertyFactory.lineColor(theme.routeCasing), PropertyFactory.lineWidth(10f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             ),
         )
         addBelowLabels(
             LineLayer(LAYER_ROUTE, SRC_ROUTE).withProperties(
-                PropertyFactory.lineColor("#2f7df6"), PropertyFactory.lineWidth(6f),
+                PropertyFactory.lineColor(theme.routeLine), PropertyFactory.lineWidth(6f),
                 PropertyFactory.lineCap(Property.LINE_CAP_ROUND), PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             ),
         )
@@ -184,15 +191,15 @@ class MapController(
         style.addSource(destinationSource)
         style.addLayer(
             CircleLayer(LAYER_DESTINATION, SRC_DESTINATION).withProperties(
-                PropertyFactory.circleRadius(9f), PropertyFactory.circleColor("#d81b60"),
-                PropertyFactory.circleStrokeColor("#ffffff"), PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleRadius(9f), PropertyFactory.circleColor(theme.destinationFill),
+                PropertyFactory.circleStrokeColor(theme.destinationStroke), PropertyFactory.circleStrokeWidth(3f),
             ),
         )
 
         style.addSource(positionSource)
         style.addLayer(
             CircleLayer(LAYER_POSITION_HALO, SRC_POSITION).withProperties(
-                PropertyFactory.circleRadius(18f), PropertyFactory.circleColor("#2f7df6"), PropertyFactory.circleOpacity(0.2f),
+                PropertyFactory.circleRadius(18f), PropertyFactory.circleColor(theme.positionFill), PropertyFactory.circleOpacity(0.25f),
             ),
         )
         style.addLayer(
@@ -200,9 +207,9 @@ class MapController(
                 PropertyFactory.circleRadius(8f),
                 // Grey while the position is only estimated (dead reckoning), blue on a satellite fix.
                 PropertyFactory.circleColor(
-                    Expression.switchCase(Expression.get("estimated"), Expression.color(Color.parseColor("#7a8794")), Expression.color(Color.parseColor("#2f7df6"))),
+                    Expression.switchCase(Expression.get("estimated"), Expression.color(Color.parseColor("#7a8794")), Expression.color(Color.parseColor(theme.positionFill))),
                 ),
-                PropertyFactory.circleStrokeColor("#ffffff"), PropertyFactory.circleStrokeWidth(3f),
+                PropertyFactory.circleStrokeColor(theme.positionStroke), PropertyFactory.circleStrokeWidth(3f),
             ),
         )
     }
@@ -224,6 +231,53 @@ class MapController(
         incidents.forEach { features.add(pointFeatureObject(it.point, JsonObject().apply { addProperty("kind", it.kind.name) })) }
         cameras.forEach { features.add(pointFeatureObject(it.point, JsonObject().apply { addProperty("kind", "camera") })) }
         roadInfoSource.setGeoJson(JsonObject().apply { addProperty("type", "FeatureCollection"); add("features", features) }.toString())
+    }
+
+    /** Recolours the base style with the day or night palette and shades buildings by height. */
+    private fun applyTheme() {
+        for (layer in style.layers) {
+            val rule = theme.ruleFor(layer.id) ?: continue
+            if (rule.hide) { layer.setProperties(PropertyFactory.visibility(Property.NONE)); continue }
+            val type = when (layer) {
+                is BackgroundLayer -> "background"
+                is FillLayer -> "fill"
+                is LineLayer -> "line"
+                is SymbolLayer -> "symbol"
+                else -> continue
+            }
+            for ((property, colour) in theme.paintFor(layer.id, type)) {
+                val value = when (property) {
+                    "background-color" -> PropertyFactory.backgroundColor(colour)
+                    "fill-color" -> PropertyFactory.fillColor(colour)
+                    "fill-outline-color" -> PropertyFactory.fillOutlineColor(colour)
+                    "line-color" -> PropertyFactory.lineColor(colour)
+                    "text-color" -> PropertyFactory.textColor(colour)
+                    "text-halo-color" -> PropertyFactory.textHaloColor(colour)
+                    else -> null
+                }
+                if (value != null) layer.setProperties(value)
+            }
+        }
+        // Taller buildings are drawn in a deeper tone, so skylines read at a glance.
+        val stops = theme.buildingStops.map { Expression.stop(it.first, Expression.color(Color.parseColor(it.second))) }.toTypedArray()
+        style.getLayer(MapConfig.BASE_BUILDINGS_3D)?.setProperties(
+            PropertyFactory.fillExtrusionColor(
+                Expression.interpolate(Expression.linear(), Expression.coalesce(Expression.get("render_height"), Expression.literal(0)), *stops),
+            ),
+            PropertyFactory.fillExtrusionOpacity(0.92f),
+        )
+    }
+
+    /** Draws place names in one language, falling back to the local name where none is mapped. */
+    private fun applyLabelLanguage(code: String) {
+        val fields = MapTheme.labelFields(code).map { Expression.get(it) }.toTypedArray()
+        val text = if (fields.size == 1) fields[0] else Expression.coalesce(*fields)
+        for (layer in style.layers) {
+            if (layer !is SymbolLayer) continue
+            // Only layers that show a place or street name; road-number shields are left alone.
+            val current = layer.textField.expression?.toString() ?: continue
+            if (current.contains("name:nonlatin") || current.contains("name:latin")) layer.setProperties(PropertyFactory.textField(text))
+        }
     }
 
     /** Shows or hides the satellite picture under the labels. */

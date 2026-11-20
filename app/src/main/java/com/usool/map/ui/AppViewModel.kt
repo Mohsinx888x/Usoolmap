@@ -40,6 +40,8 @@ data class MapUiState(
     val voiceLanguage: String = "en-US",
     val cameraAlerts: Boolean = true,
     val zoom: Double = 10.0,
+    val mapTheme: com.usool.map.map.MapThemeMode = com.usool.map.map.MapThemeMode.AUTO,
+    val mapLabels: com.usool.map.map.MapLabels = com.usool.map.map.MapLabels.PHONE,
     val satellite: Boolean = false,
     /** Street-view mode: coverage lines are shown and a tap on the map opens the nearest photo. */
     val streetMode: Boolean = false,
@@ -57,6 +59,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             voiceMode = container.settings.voiceMode,
             voiceLanguage = container.settings.voiceLanguage,
             cameraAlerts = container.settings.cameraAlerts,
+            mapTheme = container.settings.mapTheme,
+            mapLabels = container.settings.mapLabels,
         ),
     )
     val ui: StateFlow<MapUiState> = _ui.asStateFlow()
@@ -158,6 +162,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun set3D(enabled: Boolean) = _ui.update { it.copy(is3D = enabled) }
 
     fun onCameraIdle(bounds: BBox, zoom: Double) = _ui.update { it.copy(visibleBounds = bounds, zoom = zoom) }
+
+    fun setMapTheme(mode: com.usool.map.map.MapThemeMode) {
+        container.settings.mapTheme = mode
+        _ui.update { it.copy(mapTheme = mode) }
+    }
+
+    fun setMapLabels(labels: com.usool.map.map.MapLabels) {
+        container.settings.mapLabels = labels
+        _ui.update { it.copy(mapLabels = labels) }
+    }
 
     fun setSatellite(enabled: Boolean) = _ui.update { it.copy(satellite = enabled) }
 

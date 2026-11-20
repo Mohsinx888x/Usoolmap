@@ -186,6 +186,25 @@ fun SettingsScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 Text(String.format(Locale.US, "Saved humorous clips: %d (%.1f MB)", voice.cache.clipCount, voice.cache.sizeBytes / 1_048_576.0), style = MaterialTheme.typography.bodySmall)
             }
 
+            Section("Map appearance") {
+                Text("Colours", fontWeight = FontWeight.Medium)
+                com.usool.map.map.MapThemeMode.entries.forEach { mode ->
+                    Row(Modifier.fillMaxWidth().clickable { vm.setMapTheme(mode) }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = ui.mapTheme == mode, onClick = { vm.setMapTheme(mode) })
+                        Text(mode.label)
+                    }
+                }
+                Text("Automatic switches to the dark map when the phone is in dark mode or after sunset where the map is looking.", style = MaterialTheme.typography.bodySmall)
+                var labelsOpen by remember { mutableStateOf(false) }
+                OutlinedButton(onClick = { labelsOpen = true }) { Text("Place names: ${ui.mapLabels.label}") }
+                DropdownMenu(expanded = labelsOpen, onDismissRequest = { labelsOpen = false }) {
+                    com.usool.map.map.MapLabels.entries.forEach { l ->
+                        DropdownMenuItem(text = { Text(l.label) }, onClick = { vm.setMapLabels(l); labelsOpen = false })
+                    }
+                }
+                Text("Places with no name mapped in the chosen language keep their local name.", style = MaterialTheme.typography.bodySmall)
+            }
+
             Section("Region: $country") {
                 Text(
                     "Distances in ${if (region.speedUnitLabel == "mph") "miles" else "kilometres"}, speeds in ${region.speedUnitLabel}, traffic drives on the ${if (region.drivingSide == DrivingSide.LEFT) "left" else "right"}. " +

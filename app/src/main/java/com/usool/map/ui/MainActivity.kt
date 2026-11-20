@@ -56,8 +56,18 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         setContent {
             val dark = isSystemInDarkTheme()
-            val colors = if (dark) darkColorScheme(primary = Color(0xFF8AB4FF), secondary = Color(0xFFF0A53A))
-            else lightColorScheme(primary = Color(0xFF0B3D91), secondary = Color(0xFFB8660A))
+            // Usool identity: gold, black and white.
+            val gold = Color(0xFFFEC502)
+            val ink = Color(0xFF111111)
+            val colors = if (dark) darkColorScheme(
+                primary = gold, onPrimary = ink, primaryContainer = Color(0xFF3D3000), onPrimaryContainer = Color(0xFFFFE38A),
+                secondary = gold, onSecondary = ink, secondaryContainer = Color(0xFF3D3000), onSecondaryContainer = Color(0xFFFFE38A),
+                background = Color(0xFF14171C), surface = Color(0xFF14171C), surfaceVariant = Color(0xFF262A31),
+            ) else lightColorScheme(
+                primary = ink, onPrimary = Color.White, primaryContainer = gold, onPrimaryContainer = ink,
+                secondary = Color(0xFF8A6A00), onSecondary = Color.White, secondaryContainer = Color(0xFFFFE9A6), onSecondaryContainer = ink,
+                background = Color.White, surface = Color.White, surfaceVariant = Color(0xFFF3EFE6),
+            )
             MaterialTheme(colorScheme = colors) {
                 var tab by rememberSaveable { mutableStateOf(Tab.MAP) }
                 val ui by vm.ui.collectAsStateWithLifecycle()

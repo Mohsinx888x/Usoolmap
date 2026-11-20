@@ -73,6 +73,9 @@ import com.usool.map.imagery.SatelliteCatalog
 import com.usool.map.map.HeightQuality
 import com.usool.map.map.MapConfig
 import com.usool.map.map.MapController
+import com.usool.map.map.MapLabels
+import com.usool.map.map.MapThemeMode
+import com.usool.map.map.SunClock
 import com.usool.map.nav.NavigationState
 import com.usool.map.routing.Route
 import com.usool.map.routing.TravelMode
@@ -91,6 +94,28 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
     val region = remember(country) { vm.container.region() }
 
     var controller by remember { mutableStateOf<MapController?>(null) }
+    var mapRef by remember { mutableStateOf<org.maplibre.android.maps.MapLibreMap?>(null) }
+
+    // Night colours: forced in settings, or automatic with the phone's dark mode or after sunset.
+    val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val sunDown by androidx.compose.runtime.produceState(false, ui.visibleBounds == null) {
+        while (true) {
+            val b = vm.ui.value.visibleBounds
+            val lat = b?.let { (it.south + it.north) / 2 } ?: RegionProfile.DEFAULT_CENTER.lat
+            val lon = b?.let { (it.west + it.east) / 2 } ?: RegionProfile.DEFAULT_CENTER.lon
+            value = SunClock.isNight(System.currentTimeMillis(), lat, lon)
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
+    val dark = when (ui.mapTheme) {
+        MapThemeMode.DAY -> false
+        MapThemeMode.NIGHT -> true
+        MapThemeMode.AUTO -> systemDark || sunDown
+    }
+    val labelLanguage = when (ui.mapLabels) {
+        MapLabels.PHONE -> java.util.Locale.getDefault().language.ifBlank { "en" }
+        else -> ui.mapLabels.code
+    }
     var centredOnce by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -106,17 +131,17 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
                 // Zoom in far enough for the sharpest imagery; tiles around the view are fetched ahead of time.
                 map.setMaxZoomPreference(21.0)
                 map.prefetchZoomDelta = 4
-                map.setStyle(Style.Builder().fromUri(MapConfig.STYLE_URL)) { style ->
-                    val c = MapController(map, style, BuildConfig.TERRAIN_TILES_URL, vm.container.satellite, vm.container.streetView.coverageLayers)
-                    controller = c
-                    vm.onCameraIdle(c.visibleBounds(), c.zoom)
-                    map.addOnCameraIdleListener { vm.onCameraIdle(c.visibleBounds(), c.zoom) }
-                    map.addOnMapLongClickListener { p -> vm.selectPoint(GeoPoint(p.latitude, p.longitude)); true }
-                    map.addOnMapClickListener { p ->
-                        // In street-view mode a tap opens the nearest photo.
-                        if (vm.ui.value.streetMode && !vm.navigation.value.active) { vm.openStreetView(GeoPoint(p.latitude, p.longitude)); true } else false
-                    }
+                fun report() {
+                    val b = map.projection.visibleRegion.latLngBounds
+                    vm.onCameraIdle(com.usool.map.core.BBox(b.latitudeSouth, b.longitudeWest, b.latitudeNorth, b.longitudeEast), map.cameraPosition.zoom)
                 }
+                map.addOnCameraIdleListener { report() }
+                map.addOnMapLongClickListener { p -> vm.selectPoint(GeoPoint(p.latitude, p.longitude)); true }
+                map.addOnMapClickListener { p ->
+                    // In street-view mode a tap opens the nearest photo.
+                    if (vm.ui.value.streetMode && !vm.navigation.value.active) { vm.openStreetView(GeoPoint(p.latitude, p.longitude)); true } else false
+                }
+                mapRef = map
             }
         }
     }
@@ -137,12 +162,30 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
         }
     }
 
+    // The style is (re)loaded whenever the look changes; everything drawn on top is then restored
+    // by the effects below, which all depend on the new controller.
+    LaunchedEffect(mapRef, dark, labelLanguage) {
+        val map = mapRef ?: return@LaunchedEffect
+        map.setStyle(Style.Builder().fromUri(MapConfig.STYLE_URL)) { style ->
+            val c = MapController(
+                map, style, BuildConfig.TERRAIN_TILES_URL, vm.container.satellite, vm.container.streetView.coverageLayers,
+                if (dark) vm.container.nightTheme else vm.container.dayTheme, labelLanguage,
+            )
+            controller = c
+            vm.onCameraIdle(c.visibleBounds(), c.zoom)
+        }
+    }
+
     val c = controller
     val shownRoute = nav.route ?: ui.route
+    // Remembered so that a restyle does not move the camera again.
+    var fittedRoute by remember { mutableStateOf<Route?>(null) }
+    var shownDestination by remember { mutableStateOf<GeoPoint?>(null) }
     LaunchedEffect(c, shownRoute) {
         c ?: return@LaunchedEffect
         c.setRoute(shownRoute?.geometry)
-        if (shownRoute != null && !nav.active) c.fit(shownRoute.geometry)
+        if (shownRoute != null && !nav.active && fittedRoute !== shownRoute) c.fit(shownRoute.geometry)
+        fittedRoute = shownRoute
     }
     LaunchedEffect(c, ui.destination, nav.destination) { c?.setDestination(nav.destination ?: ui.destination?.point) }
     LaunchedEffect(c, ui.is3D) { c?.set3D(ui.is3D) }
@@ -150,7 +193,12 @@ fun MapScreen(vm: AppViewModel, visible: Boolean, contentPadding: PaddingValues)
     LaunchedEffect(c, ui.streetMode, nav.active) { c?.setStreetCoverage(ui.streetMode && !nav.active) }
     LaunchedEffect(c, ui.builtGeoJson) { c?.setBuiltBuildings(ui.builtGeoJson) }
     LaunchedEffect(c, nav.incidents, nav.cameras) { c?.setRoadInfo(nav.incidents, nav.cameras) }
-    LaunchedEffect(c, ui.destination) { ui.destination?.let { if (!nav.active) c?.moveTo(it.point) } }
+    LaunchedEffect(c, ui.destination) {
+        c ?: return@LaunchedEffect
+        val p = ui.destination?.point
+        if (p != null && p != shownDestination && !nav.active) c.moveTo(p)
+        shownDestination = p
+    }
     LaunchedEffect(c, gnss.fix, nav.progress) {
         c ?: return@LaunchedEffect
         val progress = nav.progress
